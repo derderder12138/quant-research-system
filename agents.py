@@ -5,17 +5,18 @@ LLM 实例通过 init_llm() 统一注入，全局共享复用。
 """
 
 import os
+from typing import Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
 # 模块级 LLM 实例（全局复用）
-_llm: ChatOpenAI = None
+_llm: Optional[ChatOpenAI] = None
 
 
 def init_llm(model: str, api_key: str, api_base: str) -> ChatOpenAI:
     """初始化并缓存全局 LLM 实例，避免每个节点重复创建。"""
     global _llm
-    _llm = ChatOpenAI(model=model, api_key=api_key, base_url=api_base)
+    _llm = ChatOpenAI(model=model, api_key=api_key, base_url=api_base)  # type: ignore[reportArgumentType]
     return _llm
 
 
@@ -25,9 +26,9 @@ def _get_llm() -> ChatOpenAI:
     if _llm is None:
         _llm = ChatOpenAI(
             model=os.getenv("LLM_MODEL", "deepseek-chat"),
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=os.getenv("OPENAI_API_KEY"),  # type: ignore[reportArgumentType]
             base_url=os.getenv("OPENAI_API_BASE", "https://api.deepseek.com/v1")
-        )
+        )  # type: ignore[reportArgumentType]
     return _llm
 
 
