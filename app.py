@@ -110,7 +110,7 @@ def _run_one(ticker):
 indices=_idx()
 with st.sidebar:
     st.markdown("### 📈 量化投研系统")
-    if st.button("🔒 锁定屏幕", width="stretch"):
+    if st.button("🔒 锁定屏幕", use_container_width=True):
         st.session_state["authenticated"] = False
         st.rerun()
     if indices:
@@ -179,7 +179,7 @@ if page.startswith("🏠"):
         active=_active(30)
         if active:
             rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","涨跌%":f"{q['change_pct']:+.2f}%","成交量(手)":f"{q.get('volume',0)/100:,.0f}"} for q in active[:20]]
-            st.dataframe(pd.DataFrame(rows).style.applymap(_cc,subset=["涨跌%"]),width="stretch",hide_index=True,height=680)
+            st.dataframe(pd.DataFrame(rows).style.applymap(_cc,subset=["涨跌%"]),hide_index=True,height=680)
     with col_b:
         st.subheader("📋 持仓快照")
         wc=get_watchlist("默认池") or ["600519","000858","600036","300750","000001","601318","000725","002415"]
@@ -225,7 +225,7 @@ elif page.startswith("📈"):
         with st.spinner("加载K线数据..."):
             fig,df=build_kline_chart(ticker,name,tf)
         if fig:
-            st.plotly_chart(fig,width="stretch",config={"displayModeBar":True,"displaylogo":False})
+            st.plotly_chart(fig,use_container_width=True,config={"displayModeBar":True,"displaylogo":False})
         else:
             st.warning("无法加载该股票的历史K线数据。")
 
@@ -265,7 +265,7 @@ elif page.startswith("📈"):
                 st.divider()
                 dist_fig=build_return_distribution(df)
                 if dist_fig:
-                    st.plotly_chart(dist_fig,width="stretch",config={"displaylogo":False})
+                    st.plotly_chart(dist_fig,use_container_width=True,config={"displaylogo":False})
 
         # --- AI 分析按钮 ---
         st.divider()
@@ -351,12 +351,12 @@ elif page.startswith("⭐"):
             st.caption(f"持仓 **{len(codes)}** 支 | 实时有效 **{len(valid)}** 支")
             if valid:
                 rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}","时间":q.get("timestamp","")} for q in valid]
-                st.dataframe(pd.DataFrame(rows).style.applymap(_cc,subset=["涨跌%"]),width="stretch",hide_index=True,height=450)
+                st.dataframe(pd.DataFrame(rows).style.applymap(_cc,subset=["涨跌%"]),hide_index=True,height=450)
         else:st.info("持仓为空 — 前往「全市场搜索」添加")
     with col_m:
         st.subheader("⚙️ 操作")
         batch=st.text_area("批量导入",placeholder="600519,000858,300750")
-        if st.button("📥 导入（自动验证）",width="stretch") and batch:
+        if st.button("📥 导入（自动验证）",use_container_width=True) and batch:
             new=[c.strip() for c in batch.replace(" ",",").split(",") if c.strip()]
             v,iv=validate_tickers(new)
             if v:add_to_watchlist(al,v);st.toast(f"已添加 {len(v)} 支")
@@ -364,7 +364,7 @@ elif page.startswith("⭐"):
             st.rerun()
         if codes:
             rm=st.multiselect("选择移除",codes)
-            if st.button("🗑️ 移除",width="stretch",disabled=not rm):
+            if st.button("🗑️ 移除",use_container_width=True,disabled=not rm):
                 remove_from_watchlist(al,rm);st.toast(f"已移除 {len(rm)} 支");st.rerun()
 
 
@@ -415,7 +415,7 @@ elif page.startswith("🚀"):
         st.caption(f"待分析: **{len(tickers) if tickers else 0}** 支")
 
     st.divider()
-    if st.button("▶️ 启动后台分析",type="primary",width="stretch",disabled=not bool(tickers)):
+    if st.button("▶️ 启动后台分析",type="primary",use_container_width=True,disabled=not bool(tickers)):
         _engine.run_batch(tickers,workers,_run_one,lambda r:save_result(DB_PATH,r),st.session_state)
         st.rerun()
 
@@ -444,7 +444,7 @@ else:
 
         st.caption(f"{len(df_f)}/{len(df_all)} 条")
         display=df_f[["时间","ticker","状态","rating","technical_analysis","fundamental_analysis","final_report"]].rename(columns={"ticker":"代码","rating":"评级","technical_analysis":"技术面","fundamental_analysis":"基本面","final_report":"CIO决策"})
-        st.dataframe(display,width="stretch",hide_index=True,height=400)
+        st.dataframe(display,hide_index=True,height=400)
 
         st.divider();st.subheader("单股详情")
         detail=st.selectbox("选择股票",sorted(df_all["ticker"].dropna().unique()))
