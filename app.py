@@ -179,7 +179,7 @@ if page.startswith("🏠"):
         active=_active(30)
         if active:
             rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","涨跌%":f"{q['change_pct']:+.2f}%","成交量(手)":f"{q.get('volume',0)/100:,.0f}"} for q in active[:20]]
-            st.dataframe(pd.DataFrame(rows).style.applymap(_cc,subset=["涨跌%"]),hide_index=True,height=680)
+            st.dataframe(pd.DataFrame(rows).style.map(_cc,subset=["涨跌%"]),hide_index=True,height=680)
     with col_b:
         st.subheader("📋 持仓快照")
         wc=get_watchlist("默认池") or ["600519","000858","600036","300750","000001","601318","000725","002415"]
@@ -351,7 +351,7 @@ elif page.startswith("⭐"):
             st.caption(f"持仓 **{len(codes)}** 支 | 实时有效 **{len(valid)}** 支")
             if valid:
                 rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}","时间":q.get("timestamp","")} for q in valid]
-                st.dataframe(pd.DataFrame(rows).style.applymap(_cc,subset=["涨跌%"]),hide_index=True,height=450)
+                st.dataframe(pd.DataFrame(rows).style.map(_cc,subset=["涨跌%"]),hide_index=True,height=450)
         else:st.info("持仓为空 — 前往「全市场搜索」添加")
     with col_m:
         st.subheader("⚙️ 操作")
