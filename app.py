@@ -235,7 +235,7 @@ elif page.startswith("📐"):
                     st.plotly_chart(sfig,use_container_width=True,config={"displaylogo":False})
                     c1,c2,c3,c4,c5=st.columns(5)
                     c1.metric("策略收益",f"{sr['total_return']:.2f}%")
-                    c2.metric("买入持有",f"{sr['buy_hold_return']:.2f}%")
+                    c2.metric("买入持有",f"{sr['bh_return']:.2f}%")
                     c3.metric("最大回撤",f"{sr['max_drawdown']:.2f}%")
                     c4.metric("胜率",f"{sr['win_rate']:.1f}%")
                     c5.metric("交易次数",sr['total_trades'])
