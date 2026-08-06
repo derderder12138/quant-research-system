@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # ---- 密钥 ----
 try:
     for key in ["OPENAI_API_KEY", "OPENAI_API_BASE"]:
-        if key in st.secrets: os.environ[key] = st.secrets[key]
+        if hasattr(st, "secrets") and key in st.secrets:  # type: ignore[reportOperatorIssue]
+            os.environ[key] = str(st.secrets[key])  # type: ignore[reportArgumentType]
 except Exception:
     from dotenv import load_dotenv; load_dotenv()
 
@@ -102,7 +103,7 @@ def _init_rt():
 def _run_one(ticker):
     g=build_graph()
     s:StockAgentState={"ticker":ticker,"data_fetch_success":False,"error_message":"","raw_history_data":{},"technical_analysis":"","fundamental_analysis":"","final_report":""}
-    try:return g.invoke(s)
+    try:return g.invoke(s)  # type: ignore[reportAttributeAccessIssue]
     except Exception as e:return{**s,"error_message":str(e)}
 
 # ============================================
