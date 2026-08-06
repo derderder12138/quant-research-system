@@ -37,6 +37,7 @@ from stock_universe import (  # noqa: E402
 from backend_engine import engine as _engine, BackendEngine  # noqa: E402
 from charts import build_kline_chart, build_return_distribution, TIMEFRAME_DAYS  # noqa: E402
 from risk_metrics import calculate_metrics, metrics_summary  # noqa: E402
+from strategy import build_strategy_chart  # noqa: E402
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "analysis.db")
 init_db(DB_PATH)
@@ -228,6 +229,38 @@ elif page.startswith("📈"):
             st.plotly_chart(fig,use_container_width=True,config={"displayModeBar":True,"displaylogo":False})
         else:
             st.warning("无法加载该股票的历史K线数据。")
+
+        # --- 双均线策略 ---
+        st.divider()
+        st.subheader("📐 25日线 × 25月线 双均线策略")
+        if st.button("🔍 运行策略分析", key="run_strategy"):
+            with st.spinner("加载历史数据（需约 800 个交易日）并计算中..."):
+                sfig, sresult = build_strategy_chart(ticker, name)
+            if sfig and sresult:
+                st.plotly_chart(sfig, use_container_width=True, config={"displaylogo": False})
+
+                # 策略绩效卡片
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("策略总收益", f"{sresult['total_return']:.2f}%")
+                c2.metric("买入持有", f"{sresult['buy_hold_return']:.2f}%")
+                c3.metric("最大回撤", f"{sresult['max_drawdown']:.2f}%")
+                c4.metric("胜率", f"{sresult['win_rate']:.1f}%")
+                c5.metric("交易次数", sresult['total_trades'])
+
+                # 当前状态
+                st.info(f"**当前状态**: {sresult['current_status']}")
+                if sresult['latest_date']:
+                    st.caption(f"最近信号: {sresult['latest_signal']}（{sresult['latest_date']}）")
+
+                # 简单说明
+                if sresult['total_trades'] == 0:
+                    st.caption("💡 该时间段内未发生金叉/死叉。当前均线位置差很大（>100元），说明趋势极其明确——策略正在告诉你「按兵不动」。")
+                elif sresult['total_return'] > sresult['buy_hold_return']:
+                    st.success(f"策略跑赢买入持有 +{sresult['total_return']-sresult['buy_hold_return']:.1f}%")
+                else:
+                    st.warning(f"策略跑输买入持有 {sresult['buy_hold_return']-sresult['total_return']:.1f}%")
+            else:
+                st.warning("数据不足——该股票历史数据不足 500 个交易日，无法计算 25 月线。")
 
         # --- 量化指标 ---
         if df is not None and not df.empty:
