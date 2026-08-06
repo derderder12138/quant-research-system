@@ -33,7 +33,7 @@ from real_time import get_realtime_quotes, get_index_quotes, validate_tickers, g
 from stock_universe import search_stocks, refresh_universe, get_universe_stats, get_by_board  # noqa: E402
 from charts import build_kline_chart, build_return_distribution, TIMEFRAME_DAYS  # noqa: E402
 from risk_metrics import calculate_metrics, metrics_summary  # noqa: E402
-from strategy import build_strategy_chart  # noqa: E402
+from strategy import build_strategy_chart, optimize_ma_pairs  # noqa: E402
 
 refresh_universe(force=False)
 
@@ -220,28 +220,59 @@ elif page.startswith("📈"):
 # 页面 3: 策略回测
 # ============================================
 elif page.startswith("📐"):
-    st.title("📐 25日线 × 25月线 双均线策略")
-    st.caption("金叉买入 · 死叉卖出 · 全自动回测")
+    st.title("📐 双均线策略引擎")
+    st.caption("金叉买入 · 死叉卖出 · 全自动回测 · 多参数优化")
 
-    col_sel,_=st.columns([2,3])
-    with col_sel:ticker=st.text_input("股票代码",value="600519",max_chars=6,placeholder="600519",key="stk")
-    if ticker and ticker.isdigit() and len(ticker)==6:
-        info_q=_q((ticker,));name=info_q[0]["name"] if info_q and info_q[0].get("name") else ""
-        if st.button("🔍 运行策略回测",type="primary",key="run_st"):
-            with st.spinner("加载800+交易日数据..."):
-                sfig,sresult=build_strategy_chart(ticker,name)
-            if sfig and sresult:
-                st.plotly_chart(sfig,use_container_width=True,config={"displaylogo":False})
-                c1,c2,c3,c4,c5=st.columns(5)
-                c1.metric("策略收益",f"{sresult['total_return']:.2f}%")
-                c2.metric("买入持有",f"{sresult['buy_hold_return']:.2f}%")
-                c3.metric("最大回撤",f"{sresult['max_drawdown']:.2f}%")
-                c4.metric("胜率",f"{sresult['win_rate']:.1f}%")
-                c5.metric("交易次数",sresult['total_trades'])
-                st.info(f"**当前状态**: {sresult['current_status']}")
-                if sresult['latest_date']:st.caption(f"最近信号: {sresult['latest_signal']}（{sresult['latest_date']}）")
-                if sresult['total_return']>sresult['buy_hold_return']:st.success(f"策略跑赢买入持有 +{sresult['total_return']-sresult['buy_hold_return']:.1f}%")
-                else:st.warning(f"策略跑输 {sresult['buy_hold_return']-sresult['total_return']:.1f}%")
+    mode = st.radio("模式", ["单策略回测 (25日×500日)", "多参数优化 (扫描最佳MA组合)"], horizontal=True)
+
+    col_sel, _ = st.columns([2, 3])
+    with col_sel:
+        ticker = st.text_input("股票代码", value="600519", max_chars=6, placeholder="600519", key="stk")
+
+    if ticker and ticker.isdigit() and len(ticker) == 6:
+        info_q = _q((ticker,))
+        name = info_q[0]["name"] if info_q and info_q[0].get("name") else ""
+
+        if "单策略" in mode:
+            if st.button("🔍 运行 25日×25月线 回测", type="primary", key="run_st"):
+                with st.spinner("加载 1300 交易日数据..."):
+                    sfig, sresult = build_strategy_chart(ticker, name)
+                if sfig and sresult:
+                    st.plotly_chart(sfig, use_container_width=True, config={"displaylogo": False})
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric("策略收益", f"{sresult['total_return']:.2f}%")
+                    c2.metric("买入持有", f"{sresult['buy_hold_return']:.2f}%")
+                    c3.metric("最大回撤", f"{sresult['max_drawdown']:.2f}%")
+                    c4.metric("胜率", f"{sresult['win_rate']:.1f}%")
+                    c5.metric("交易次数", sresult['total_trades'])
+                    st.info(f"**当前状态**: {sresult['current_status']}")
+                    if sresult['latest_date']:
+                        st.caption(f"最近信号: {sresult['latest_signal']}（{sresult['latest_date']}）")
+                    if sresult['total_return'] > sresult['buy_hold_return']:
+                        st.success(f"策略跑赢买入持有 +{sresult['total_return'] - sresult['buy_hold_return']:.1f}%")
+                    else:
+                        st.warning(f"策略跑输 {sresult['buy_hold_return'] - sresult['total_return']:.1f}%")
+                else:
+                    st.warning("数据不足，需要 500+ 交易日历史。")
+
+        else:
+            st.caption("扫描 20 个短线周期 × 20 个长线周期 = 最高 400 组组合，按夏普比率排名")
+            if st.button("🚀 启动参数优化", type="primary", key="run_opt"):
+                with st.spinner("正在扫描所有 MA 组合（约需 30 秒）..."):
+                    opt_fig, opt_df = optimize_ma_pairs(ticker, name)
+                if opt_fig and opt_df is not None:
+                    st.plotly_chart(opt_fig, use_container_width=True, config={"displaylogo": False})
+
+                    st.subheader("📊 完整排名 (Top 50)")
+                    display_df = opt_df.head(50)[["short", "long", "total_return", "bh_return", "excess", "sharpe", "max_drawdown", "win_rate", "total_trades"]]
+                    display_df.columns = ["短线周期", "长线周期", "策略收益%", "买入持有%", "超额收益%", "夏普比率", "最大回撤%", "胜率%", "交易次数"]
+                    st.dataframe(display_df, hide_index=True, height=400)
+
+                    # 最佳组合推荐
+                    best = opt_df.iloc[0]
+                    st.success(f"🏆 **最佳组合: MA{int(best['short'])} × MA{int(best['long'])}** | 夏普: {best['sharpe']:.2f} | 超额收益: {best['excess']:.2f}%")
+                else:
+                    st.warning("数据不足。")
 
 # ============================================
 # 页面 4: 全市场搜索
