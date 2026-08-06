@@ -1,0 +1,24 @@
+# ==========================================
+# 量化投研批量系统 — 全局运行配置
+# ==========================================
+
+runtime:
+  max_workers: 5          # 并发线程数（同时分析多少支股票）
+  retry_attempts: 3       # 数据获取失败重试次数
+  retry_delay: 2          # 重试间隔（秒）
+
+llm:
+  model: "deepseek-chat"
+  api_key_env: "OPENAI_API_KEY"       # 从 .env 读取的环境变量名
+  api_base_env: "OPENAI_API_BASE"
+
+database:
+  path: "data/analysis.db"            # SQLite 数据库文件路径
+
+logging:
+  level: "INFO"                       # DEBUG / INFO / WARNING / ERROR
+  file: "logs/batch_run.log"          # 日志输出文件
+
+# 股票池文件路径（相对于项目根目录）
+watchlist:
+  file: "watchlist.txt"

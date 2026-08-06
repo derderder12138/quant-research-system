@@ -1,0 +1,13 @@
+streamlit>=1.32
+langgraph
+langchain-openai
+langchain-core
+akshare
+pandas
+numpy
+plotly
+pyyaml
+tqdm
+python-dotenv
+requests
+pydantic
