@@ -6,8 +6,17 @@ SQLite 持久化模块 — 多用户支持。
 import os, sqlite3, hashlib, re
 from typing import Optional, List, Dict, Any
 
-DB_DIR = os.path.join(os.path.dirname(__file__), "data")
+DB_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "data")
 os.makedirs(DB_DIR, exist_ok=True)
+# Streamlit Cloud 上确保目录有写权限
+try:
+    with open(os.path.join(DB_DIR, ".write_test"), "w") as f:
+        f.write("ok")
+    os.remove(os.path.join(DB_DIR, ".write_test"))
+except Exception:
+    # fallback to /tmp if data dir not writable
+    DB_DIR = "/tmp/quant_data"
+    os.makedirs(DB_DIR, exist_ok=True)
 
 _RATING_PATTERN = re.compile(r"\[(积极建仓|谨慎持有|观望等待|减仓回避)\]")
 
@@ -103,9 +112,9 @@ def save_result(username: str, result: Dict[str, Any]) -> int:
     elif not result.get("data_fetch_success"):
         rating = "数据失败"
     c = conn.execute("""
-        INSERT INTO analysis_results (ticker, fetch_success, error_message, technical_analysis, fundamental_analysis, final_report, rating)
-        VALUES (?,?,?,?,?,?,?)
-    """, (result.get("ticker",""), result.get("data_fetch_success",False), result.get("error_message",""),
+        INSERT INTO analysis_results (ticker, fetch_success, error_message, technical_analysis, fundamental_analysis, final_report, rating, created_at)
+        VALUES (?,?,?,?,?,?,?, datetime('now','localtime'))
+    """, (result.get("ticker",""), 1 if result.get("data_fetch_success") else 0, result.get("error_message",""),
           result.get("technical_analysis",""), result.get("fundamental_analysis",""), result.get("final_report",""), rating or ""))
     conn.commit(); rid = c.lastrowid; conn.close()
     return rid

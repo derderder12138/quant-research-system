@@ -70,6 +70,27 @@ USER = st.session_state["user"]
 for k in ["batch_tickers","batch_i","batch_total","batch_results","batch_running"]:
     if k not in st.session_state: st.session_state[k] = [] if k.endswith("s") or k.endswith("l") else (0 if k.endswith("i") or k.endswith("l") else False)
 
+# ═══════════════════════════════════════════
+# 全局批量分析处理器（任何页面都会执行）
+# ═══════════════════════════════════════════
+if st.session_state["batch_running"]:
+    tickers = st.session_state["batch_tickers"]
+    i = st.session_state["batch_i"]
+    total = st.session_state["batch_total"]
+    results = st.session_state["batch_results"]
+
+    if i < total:
+        _init_rt()
+        t = tickers[i]
+        final = _run_one(t)
+        save_result(USER, final)
+        results.append(final)
+        st.session_state["batch_i"] = i + 1
+        st.session_state["batch_results"] = results
+        st.rerun()
+    else:
+        st.session_state["batch_running"] = False
+
 # ---- 缓存 ----
 @st.cache_data(ttl=15)
 def _q(t): return get_realtime_quotes(list(t))
@@ -283,44 +304,30 @@ elif page.startswith("⭐"):
             if st.button("🗑️ 移除",use_container_width=True,disabled=not rm):remove_from_watchlist(USER,al,rm);st.rerun()
 
 # ============================================
-# 🚀 批量分析（异步模式——跨页面不中断）
+# 🚀 批量分析
 # ============================================
 elif page.startswith("🚀"):
     st.title("批量量化分析")
     _init_rt()
 
-    # 如果有正在运行的批量任务，继续处理下一支
+    # 显示进度
     if st.session_state["batch_running"]:
-        tickers=st.session_state["batch_tickers"]
-        i=st.session_state["batch_i"]
-        total=st.session_state["batch_total"]
-        results=st.session_state["batch_results"]
+        i = st.session_state["batch_i"]; total = st.session_state["batch_total"]
+        st.warning(f"⏳ 分析中: {i}/{total}")
+        st.progress(i / total if total else 0)
+        st.caption("正在逐支分析，可自由切换页面——后台不中断。")
+        st.stop()
 
-        if i<total:
-            # 分析下一支
-            t=tickers[i]
-            final=_run_one(t)
-            save_result(USER,final)
-            results.append(final)
-            i+=1
-            st.session_state["batch_i"]=i
-            st.session_state["batch_results"]=results
-
-            pct=i/total
-            st.warning(f"⏳ 分析中: {i}/{total} — 刚刚完成: **{t}**")
-            st.progress(pct)
-            st.caption("可切换任意页面，分析不中断。回来即见最新进度。")
-            time.sleep(0.3)
-            st.rerun()
-        else:
-            # 完成
-            st.session_state["batch_running"]=False
-            ok=sum(1 for r in results if r.get("data_fetch_success"))
-            st.success(f"✅ 完成！{ok}/{total} 成功")
+    # 上次结果
+    if st.session_state.get("batch_results"):
+        results = st.session_state["batch_results"]
+        ok = sum(1 for r in results if r.get("data_fetch_success"))
+        st.success(f"✅ 上次完成: {ok}/{len(results)} 成功")
+        with st.expander("查看详情"):
             for r in results:
-                if not r.get("data_fetch_success"):st.warning(f"{r['ticker']}: {r.get('error_message','')[:80]}")
-            st.balloons()
-            st.stop()
+                icon = "✅" if r.get("data_fetch_success") else "❌"
+                st.caption(f"{icon} {r['ticker']}: {r.get('error_message','')[:60]}")
+        if st.button("清除结果"): st.session_state["batch_results"] = []
 
     # ---- 配置新任务 ----
     col_in,col_cfg=st.columns([2,1])
