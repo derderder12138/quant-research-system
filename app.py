@@ -70,6 +70,26 @@ USER = st.session_state["user"]
 for k in ["batch_tickers","batch_i","batch_total","batch_results","batch_running"]:
     if k not in st.session_state: st.session_state[k] = [] if k.endswith("s") or k.endswith("l") else (0 if k.endswith("i") or k.endswith("l") else False)
 
+# ---- 工具函数（必须在全局批量处理之前定义）----
+@st.cache_data(ttl=15)
+def _q(t): return get_realtime_quotes(list(t))
+@st.cache_data(ttl=20)
+def _idx(): return get_index_quotes()
+@st.cache_data(ttl=20)
+def _active(n): return get_top_active(n)
+def _cc(v):
+    try: x=float(str(v).replace("%","").replace("+",""));return "color:#e53935;font-weight:700" if x>0 else "color:#43a047;font-weight:700" if x<0 else ""
+    except: return ""
+def _init_rt():
+    if "rt" not in st.session_state:
+        init_llm(model=os.getenv("LLM_MODEL","deepseek-chat"),api_key=os.getenv("OPENAI_API_KEY",""),api_base=os.getenv("OPENAI_API_BASE","https://api.deepseek.com/v1"))
+        configure_fetcher(3,2);st.session_state["rt"]=True
+def _run_one(t):
+    g=build_graph()
+    s:StockAgentState={"ticker":t,"data_fetch_success":False,"error_message":"","raw_history_data":{},"technical_analysis":"","fundamental_analysis":"","final_report":""}
+    try:return g.invoke(s)  # type: ignore[reportAttributeAccessIssue]
+    except Exception as e:return{**s,"error_message":str(e)}
+
 # ═══════════════════════════════════════════
 # 全局批量分析处理器（任何页面都会执行）
 # ═══════════════════════════════════════════
@@ -90,26 +110,6 @@ if st.session_state["batch_running"]:
         st.rerun()
     else:
         st.session_state["batch_running"] = False
-
-# ---- 缓存 ----
-@st.cache_data(ttl=15)
-def _q(t): return get_realtime_quotes(list(t))
-@st.cache_data(ttl=20)
-def _idx(): return get_index_quotes()
-@st.cache_data(ttl=20)
-def _active(n): return get_top_active(n)
-def _cc(v):
-    try: x=float(str(v).replace("%","").replace("+",""));return "color:#e53935;font-weight:700" if x>0 else "color:#43a047;font-weight:700" if x<0 else ""
-    except: return ""
-def _init_rt():
-    if "rt" not in st.session_state:
-        init_llm(model=os.getenv("LLM_MODEL","deepseek-chat"),api_key=os.getenv("OPENAI_API_KEY",""),api_base=os.getenv("OPENAI_API_BASE","https://api.deepseek.com/v1"))
-        configure_fetcher(3,2);st.session_state["rt"]=True
-def _run_one(t):
-    g=build_graph()
-    s:StockAgentState={"ticker":t,"data_fetch_success":False,"error_message":"","raw_history_data":{},"technical_analysis":"","fundamental_analysis":"","final_report":""}
-    try:return g.invoke(s)  # type: ignore[reportAttributeAccessIssue]
-    except Exception as e:return{**s,"error_message":str(e)}
 
 # ============================================
 # 侧边栏
