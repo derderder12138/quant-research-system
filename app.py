@@ -44,7 +44,21 @@ st.markdown("""<style>
     [data-testid="stSidebar"]{background:linear-gradient(180deg,#1a1a2e 0%,#16213e 100%)}
     [data-testid="stSidebar"] *{color:#e0e0e0!important}
     [data-testid="stSidebar"] button{background:#0f3460!important;color:#e0e0e0!important;border:1px solid #1a1a4e!important}
+    /* 统一分析报告字体：LLM输出的##/###标题不再放大 */
+    [data-testid="stExpander"] h1,[data-testid="stExpander"] h2,[data-testid="stExpander"] h3,
+    .stMarkdown h1,.stMarkdown h2,.stMarkdown h3{font-size:1rem!important;font-weight:700!important}
+    [data-testid="stExpander"] p,.stMarkdown p{font-size:0.9rem!important}
 </style>""", unsafe_allow_html=True)
+
+# 报告文本清洗：把 ### 标题转成加粗文本，统一字号
+def _clean_report(text: str) -> str:
+    if not text: return "*无数据*"
+    import re
+    # ## Title → **Title**
+    text = re.sub(r'^#{2,4}\s+', '**', text, flags=re.MULTILINE)
+    # 如果开头变成了 **，补上换行
+    text = re.sub(r'\*\*([^*]+)$', r'**\n\1', text, flags=re.MULTILINE)
+    return text.replace("\n", "\n\n")
 
 # ============================================
 # 登录
@@ -184,12 +198,12 @@ elif page.startswith("📈"):
                 r=_run_one(ticker);save_result(USER,r)
             if r.get("data_fetch_success"):
                 t1,t2,t3=st.tabs(["技术面","基本面","CIO"])
-                with t1:st.markdown((r.get("technical_analysis")or"").replace("\n","\n\n"))
-                with t2:st.markdown((r.get("fundamental_analysis")or"").replace("\n","\n\n"))
+                with t1:st.markdown(_clean_report(r.get("technical_analysis") or ""))
+                with t2:st.markdown(_clean_report(r.get("fundamental_analysis") or ""))
                 with t3:
                     rt=r.get("rating")or extract_rating(r.get("final_report",""))
                     if rt:st.markdown(f"### {rt}")
-                    st.divider();st.markdown((r.get("final_report")or"").replace("\n","\n\n"))
+                    st.divider();st.markdown(_clean_report(r.get("final_report") or ""))
             else:st.error(f"失败: {r.get('error_message','')[:200]}")
 
 # ============================================
@@ -415,12 +429,12 @@ elif page.startswith("📋"):
             recs=[r for r in all_r if r["ticker"]==detail]
             if recs:
                 r=recs[0];t1,t2,t3=st.tabs(["技术面","基本面","CIO"])
-                with t1:st.markdown((r.get("technical_analysis")or"*无*").replace("\n","\n\n"))
-                with t2:st.markdown((r.get("fundamental_analysis")or"*无*").replace("\n","\n\n"))
+                with t1:st.markdown(_clean_report(r.get("technical_analysis") or ""))
+                with t2:st.markdown(_clean_report(r.get("fundamental_analysis") or ""))
                 with t3:
                     rt=r.get("rating")or extract_rating(r.get("final_report",""))
                     if rt:st.markdown(f"### {rt}")
-                    st.divider();st.markdown((r.get("final_report")or"*无*").replace("\n","\n\n"))
+                    st.divider();st.markdown(_clean_report(r.get("final_report") or ""))
 
 # ============================================
 # 🛡️ 智能风控（新增）
