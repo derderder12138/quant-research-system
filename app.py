@@ -38,10 +38,16 @@ refresh_universe(force=False)
 st.set_page_config(page_title="量化投研系统", page_icon="📈", layout="wide")
 
 st.markdown("""<style>
-    html,body{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
-    .idx-card{background:#f5f6f9;border-radius:8px;padding:10px 14px;text-align:center}
-    .metric-chip{background:#f0f2f5;border-radius:6px;padding:6px 10px;font-size:0.8rem;text-align:center}
-    .metric-chip .v{font-weight:700;font-size:1rem}.metric-chip .l{color:#888;font-size:0.65rem}
+    /* 主内容区全局黑字，防止暗色侧边栏CSS泄露 */
+    section.main [data-testid="stMarkdownContainer"] *{color:#1a1a1a}
+    section.main h1,section.main h2,section.main h3{color:#111!important}
+    section.main p,span,div{color:#1a1a1a}
+    section.main small,caption{color:#666}
+    html,body,[class*="css"]{font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}
+    .idx-card{background:#f5f6f9;border-radius:8px;padding:10px 14px;text-align:center;color:#111}
+    .idx-card b{color:#111}.idx-card small{color:#888}
+    .metric-chip{background:#f0f2f5;border-radius:6px;padding:6px 10px;font-size:0.8rem;text-align:center;color:#111}
+    .metric-chip .v{font-weight:700;font-size:1rem;color:#111}.metric-chip .l{color:#888;font-size:0.65rem}
     [data-testid="stSidebar"]{background:linear-gradient(180deg,#1a1a2e 0%,#16213e 100%)}
     [data-testid="stSidebar"] *{color:#e0e0e0!important}
     [data-testid="stSidebar"] button{background:#0f3460!important;color:#e0e0e0!important;border:1px solid #1a1a4e!important}
