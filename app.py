@@ -27,7 +27,7 @@ from graph_builder import build_graph  # noqa: E402
 from graph_types import StockAgentState  # noqa: E402
 from agents import init_llm  # noqa: E402
 from data_fetcher import configure_fetcher  # noqa: E402
-from real_time import get_realtime_quotes, get_index_quotes, validate_tickers, get_top_active  # noqa: E402
+from real_time import get_realtime_quotes, get_index_quotes, validate_tickers, get_top_active, get_quotes_batched  # noqa: E402
 from stock_universe import search_stocks, refresh_universe, get_universe_stats, get_by_board  # noqa: E402
 from charts import build_kline_chart, build_return_distribution, TIMEFRAME_DAYS  # noqa: E402
 from risk_metrics import calculate_metrics, metrics_summary  # noqa: E402
@@ -311,16 +311,12 @@ elif page.startswith("🔍"):
         if results:
             st.success(f"找到 {len(results)} 支匹配")
 
-            # 获取选中股的实时行情
-            codes = [r["code"] for r in results[:50]]  # 最多取前50支的实时价
-            quotes = {}
+            # 获取全部搜索结果实时行情
+            codes = [r["code"] for r in results]
             try:
-                qlist = _q(tuple(codes))
-                for q in qlist:
-                    if q.get("price", 0) > 0:
-                        quotes[q["code"]] = q
+                quotes = get_quotes_batched(codes)
             except Exception:
-                pass
+                quotes = {}
 
             # 构建表格行
             rows = []
@@ -383,16 +379,12 @@ elif page.startswith("🔍"):
             with tab:
                 stocks = get_by_board(board, limit=200)
                 if stocks:
-                    # 取前 50 支获取实时行情
-                    sample_codes = [s["code"] for s in stocks[:50]]
-                    quotes = {}
+                    # 获取全部板块股票实时行情
+                    all_codes = [s["code"] for s in stocks]
                     try:
-                        qlist = _q(tuple(sample_codes))
-                        for q in qlist:
-                            if q.get("price", 0) > 0:
-                                quotes[q["code"]] = q
+                        quotes = get_quotes_batched(all_codes)
                     except Exception:
-                        pass
+                        quotes = {}
 
                     rows = []
                     for s in stocks:
@@ -544,26 +536,6 @@ elif page.startswith("🚀"):
 # ============================================
 elif page.startswith("📋"):
     st.title("历史报告")
-
-    # ---- 数据库自诊断 ----
-    from database import _get_db_dir, _db_path
-    dd = _get_db_dir(); df = _db_path(USER); fe = os.path.exists(df)
-    with st.expander("🔧 数据库诊断", expanded=False):
-        st.caption(f"目录: {dd}")
-        st.caption(f"文件: {df}")
-        st.caption(f"存在: {'是' if fe else '否'} | 大小: {os.path.getsize(df) if fe else 0} bytes")
-        if fe:
-            try:
-                import sqlite3
-                c = sqlite3.connect(df)
-                cnt = c.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0]
-                st.caption(f"记录数: {cnt}")
-                if cnt > 0:
-                    for r in c.execute("SELECT ticker,fetch_success,rating,created_at FROM analysis_results ORDER BY created_at DESC LIMIT 5").fetchall():
-                        st.caption(f"  {r[0]} | {'OK' if r[1] else 'FAIL'} | {r[2] or '-'} | {r[3]}")
-                c.close()
-            except Exception as e:
-                st.error(f"读取异常: {e}")
 
     all_r = get_results(USER, limit=500)
     if not all_r:

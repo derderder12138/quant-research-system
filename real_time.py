@@ -78,6 +78,18 @@ def _parse_sina_line(line: str) -> Optional[Dict]:
         return None
 
 
+def get_quotes_batched(tickers: List[str], batch_size: int = 80) -> Dict[str, Dict]:
+    """分批获取实时行情，返回 {code: quote_dict} 映射。自动拆分大批量请求。"""
+    result = {}
+    for i in range(0, len(tickers), batch_size):
+        batch = tickers[i:i + batch_size]
+        quotes = get_realtime_quotes(batch)
+        for q in quotes:
+            if q.get("price", 0) > 0:
+                result[q["code"]] = q
+    return result
+
+
 def get_realtime_quotes(tickers: List[str]) -> List[Dict]:
     """
     批量获取实时行情（新浪源，单次最多 ~80 支）。
