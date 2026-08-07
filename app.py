@@ -293,28 +293,141 @@ elif page.startswith("📐"):
 # 全市场搜索 / 持仓管理 / 历史报告（精简但完整）
 # ============================================
 elif page.startswith("🔍"):
-    st.title("全市场搜索");univ=get_universe_stats();st.caption(f"A股 {univ['total']:,} 支")
-    qry=st.text_input("搜索",placeholder="茅台/宁德/600519")
-    bf=st.selectbox("板块",["全部"]+sorted(univ.get("boards",{}).keys()))
+    st.title("全市场搜索")
+    univ = get_universe_stats()
+    st.caption(f"A股 {univ['total']:,} 支 | 支持代码/名称模糊搜索")
+
+    col_q, col_f, col_n = st.columns([3, 1.5, 1])
+    with col_q:
+        qry = st.text_input("搜索", placeholder="茅台 / 宁德 / 600519 / 银行")
+    with col_f:
+        bf = st.selectbox("板块", ["全部"] + sorted(univ.get("boards", {}).keys()))
+    with col_n:
+        limit_n = st.selectbox("显示数量", [50, 100, 200, 500], index=1)
+
     if qry:
-        results=search_stocks(qry,60)
-        if bf!="全部":results=[r for r in results if r.get("board")==bf]
+        results = search_stocks(qry, max(limit_n, 200))
+        if bf != "全部":
+            results = [r for r in results if r.get("board") == bf]
+        results = results[:limit_n]
+
         if results:
-            for i in range(0,len(results),5):
-                cols=st.columns(5)
-                for j,r in enumerate(results[i:i+5]):
-                    with cols[j]:
-                        st.markdown(f"<div style='background:#f6f8fa;border-radius:8px;padding:10px;text-align:center'><b>{r['code']}</b><br>{r['name']}<br><small>{r['market']}·{r['board']}</small></div>",unsafe_allow_html=True)
-                        if st.button("➕",key=f"s_{r['code']}"):add_to_watchlist(USER,"默认池",[r["code"]]);st.toast(f"已加入 {r['code']}")
+            st.success(f"找到 {len(results)} 支匹配")
+
+            # 获取选中股的实时行情
+            codes = [r["code"] for r in results[:50]]  # 最多取前50支的实时价
+            quotes = {}
+            try:
+                qlist = _q(tuple(codes))
+                for q in qlist:
+                    if q.get("price", 0) > 0:
+                        quotes[q["code"]] = q
+            except Exception:
+                pass
+
+            # 构建表格行
+            rows = []
+            for r in results:
+                q = quotes.get(r["code"], {})
+                price = q.get("price", 0)
+                chg = q.get("change_pct", 0)
+                row = {
+                    "代码": r["code"],
+                    "名称": r["name"],
+                    "板块": r["board"],
+                    "市场": r["market"],
+                }
+                if price > 0:
+                    row["现价"] = f"{price:.2f}"
+                    row["涨跌%"] = f"{chg:+.2f}%"
+                else:
+                    row["现价"] = "—"
+                    row["涨跌%"] = "—"
+                rows.append(row)
+
+            df = pd.DataFrame(rows)
+            if "涨跌%" in df.columns:
+                styled = df.style.map(_cc, subset=["涨跌%"])
+                st.dataframe(styled, hide_index=True, height=min(600, 35*len(rows)+38),
+                           column_config={"代码": st.column_config.TextColumn(width="small"),
+                                         "名称": st.column_config.TextColumn(width="medium"),
+                                         "板块": st.column_config.TextColumn(width="small"),
+                                         "市场": st.column_config.TextColumn(width="small"),
+                                         "现价": st.column_config.TextColumn(width="small"),
+                                         "涨跌%": st.column_config.TextColumn(width="small")})
+            else:
+                st.dataframe(df, hide_index=True, height=min(600, 35*len(rows)+38),
+                           column_config={"代码": st.column_config.TextColumn(width="small"),
+                                         "名称": st.column_config.TextColumn(width="medium"),
+                                         "板块": st.column_config.TextColumn(width="small"),
+                                         "市场": st.column_config.TextColumn(width="small")})
+
+            # 批量添加区域
+            st.divider()
+            col_sel, col_add = st.columns([3, 1])
+            with col_sel:
+                selected = st.multiselect("选择股票批量加入持仓", codes, key="bulk_add",
+                                          placeholder="点击选择，可多选...")
+            with col_add:
+                if st.button(f"📥 批量加入 ({len(selected)}支)", use_container_width=True, disabled=not selected):
+                    n = add_to_watchlist(USER, "默认池", selected)
+                    st.toast(f"已添加 {n} 支")
+                    st.rerun()
+        else:
+            st.warning(f"无匹配「{qry}」的股票。尝试其他关键词（如公司全称、拼音首字母）。")
+
     else:
-        tabs=st.tabs(list(univ.get("boards",{}).keys()))
-        for tab,board in zip(tabs,univ.get("boards",{}).keys()):
+        # 无搜索时按板块浏览——表格形式，每次显示更多
+        st.divider()
+        st.subheader("📂 按板块浏览")
+        boards = list(univ.get("boards", {}).keys())
+        tabs = st.tabs(boards)
+        for tab, board in zip(tabs, boards):
             with tab:
-                for i in range(0,min(len(get_by_board(board,24)),24),6):
-                    cols=st.columns(6)
-                    for j,s in enumerate(get_by_board(board,24)[i:i+6]):
-                        with cols[j]:st.code(s["code"],language=None);st.caption(s["name"])
-                        if st.button("➕",key=f"b_{s['code']}"):add_to_watchlist(USER,"默认池",[s["code"]]);st.toast(f"已加入 {s['code']}")
+                stocks = get_by_board(board, limit=200)
+                if stocks:
+                    # 取前 50 支获取实时行情
+                    sample_codes = [s["code"] for s in stocks[:50]]
+                    quotes = {}
+                    try:
+                        qlist = _q(tuple(sample_codes))
+                        for q in qlist:
+                            if q.get("price", 0) > 0:
+                                quotes[q["code"]] = q
+                    except Exception:
+                        pass
+
+                    rows = []
+                    for s in stocks:
+                        q = quotes.get(s["code"], {})
+                        price = q.get("price", 0)
+                        chg = q.get("change_pct", 0)
+                        row = {"代码": s["code"], "名称": s["name"]}
+                        if price > 0:
+                            row["现价"] = f"{price:.2f}"
+                            row["涨跌%"] = f"{chg:+.2f}%"
+                        else:
+                            row["现价"] = "—"; row["涨跌%"] = "—"
+                        rows.append(row)
+
+                    df = pd.DataFrame(rows)
+                    if "涨跌%" in df.columns:
+                        st.dataframe(df.style.map(_cc, subset=["涨跌%"]), hide_index=True,
+                                   height=min(500, 35*len(rows)+38),
+                                   column_config={"代码": st.column_config.TextColumn(width="small"),
+                                                 "名称": st.column_config.TextColumn(width="medium"),
+                                                 "现价": st.column_config.TextColumn(width="small"),
+                                                 "涨跌%": st.column_config.TextColumn(width="small")})
+                    else:
+                        st.dataframe(df, hide_index=True, height=min(500, 35*len(rows)+38))
+
+                    # 批量操作
+                    sel_codes = st.multiselect(f"选择 {board} 股票加入持仓", [s["code"] for s in stocks],
+                                               key=f"sel_{board}", placeholder="可多选...")
+                    if st.button(f"📥 加入持仓 ({len(sel_codes)}支)", key=f"add_{board}", disabled=not sel_codes):
+                        add_to_watchlist(USER, "默认池", sel_codes)
+                        st.toast(f"已添加 {len(sel_codes)} 支")
+                        st.rerun()
 
 elif page.startswith("⭐"):
     st.title("持仓管理")
