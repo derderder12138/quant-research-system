@@ -216,61 +216,129 @@ def run_custom_strategy(ticker: str) -> Optional[Dict]:
 
 
 def build_custom_chart(ticker: str, name: str = "") -> Tuple[Optional[go.Figure], Optional[Dict]]:
-    """构建自定义策略可视化图表。"""
+    """构建自定义策略可视化图表——同花顺风格。"""
     result = run_custom_strategy(ticker)
     if result is None:
         return None, None
 
-    df = result["df"]
-    title = f"{ticker} {name} — 5×25金叉+MACD多周期+25周线策略" if name else f"{ticker} — 自定义多条件策略"
+    df = result["df"].copy()
+    # 只保留有效数据区间
+    df = df.dropna(subset=["MA5","MA10","MA25","MA125","DIF","DEA"])
 
+    stock_label = f"{ticker} {name}" if name else ticker
+
+    # 4 面板：K线+均线 / 成交量 / MACD / 净值
     fig = make_subplots(
-        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
-        row_heights=[0.5, 0.25, 0.25],
-        subplot_titles=(title, "MACD 日线 (黄线=DEA)", "策略净值"),
+        rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.02,
+        row_heights=[0.45, 0.15, 0.2, 0.2],
     )
 
-    # K线 + 均线
-    fig.add_trace(go.Candlestick(x=df["date"], open=df["open"], high=df["high"],
-                   low=df["low"], close=df["close"], name="K线",
-                   increasing_line_color="#e53935", decreasing_line_color="#43a047", showlegend=False), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["date"], y=df["MA5"], mode="lines", name="MA5", line=dict(color="#ff9800",width=1)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["date"], y=df["MA10"], mode="lines", name="MA10", line=dict(color="#f44336",width=1,dash="dot")), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["date"], y=df["MA25"], mode="lines", name="MA25", line=dict(color="#2196f3",width=1.5)), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df["date"], y=df["MA125"], mode="lines", name="MA125(25周)", line=dict(color="#9c27b0",width=2)), row=1, col=1)
+    # ---- 面板1: K线 + 四条均线 + 买卖点 ----
+    fig.add_trace(go.Candlestick(
+        x=df["date"], open=df["open"], high=df["high"], low=df["low"], close=df["close"],
+        name="", increasing=dict(line=dict(color="#e83939",width=1), fillcolor="#e83939"),
+        decreasing=dict(line=dict(color="#1aad19",width=1), fillcolor="#1aad19"),
+        showlegend=False, hoverinfo="x+y+text",
+    ), row=1, col=1)
 
-    # 买入标记
+    fig.add_trace(go.Scatter(x=df["date"], y=df["MA5"], mode="lines",
+        name="MA5", line=dict(color="#ffb340",width=1), legendgroup="ma"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df["date"], y=df["MA10"], mode="lines",
+        name="MA10", line=dict(color="#33a3ff",width=1), legendgroup="ma"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df["date"], y=df["MA25"], mode="lines",
+        name="MA25", line=dict(color="#e83939",width=1.2), legendgroup="ma"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df["date"], y=df["MA125"], mode="lines",
+        name="MA125(25周)", line=dict(color="#9b30ff",width=1.8), legendgroup="ma"), row=1, col=1)
+
+    # 买入标记 (B)
     buy_pts = df[df["BUY_SIGNAL"]]
     if not buy_pts.empty:
-        fig.add_trace(go.Scatter(x=buy_pts["date"], y=buy_pts["close"], mode="markers",
-                       name="买入", marker=dict(symbol="triangle-up", size=14, color="#e53935")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=buy_pts["date"], y=buy_pts["low"] * 0.97, mode="markers+text",
+            name="买入", text=["B"]*len(buy_pts), textposition="bottom center",
+            textfont=dict(color="#e83939", size=14, family="Arial Black"),
+            marker=dict(symbol="triangle-up", size=14, color="#e83939", line=dict(width=1,color="#fff")),
+            legendgroup="signal"), row=1, col=1)
+
+    # 减半仓 (H)
     sell_half = df[df["SELL_HALF"]]
     if not sell_half.empty:
-        fig.add_trace(go.Scatter(x=sell_half["date"], y=sell_half["close"], mode="markers",
-                       name="减半仓", marker=dict(symbol="triangle-down", size=10, color="#ff9800")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=sell_half["date"], y=sell_half["high"] * 1.03, mode="markers+text",
+            name="减半仓", text=["½"]*len(sell_half), textposition="top center",
+            textfont=dict(color="#ff9800", size=12, family="Arial Black"),
+            marker=dict(symbol="triangle-down", size=12, color="#ff9800", line=dict(width=1,color="#fff")),
+            legendgroup="signal"), row=1, col=1)
+
+    # 清仓 (S)
     sell_all = df[df["SELL_ALL"]]
     if not sell_all.empty:
-        fig.add_trace(go.Scatter(x=sell_all["date"], y=sell_all["close"], mode="markers",
-                       name="清仓", marker=dict(symbol="x", size=12, color="#43a047")), row=1, col=1)
+        fig.add_trace(go.Scatter(x=sell_all["date"], y=sell_all["high"] * 1.05, mode="markers+text",
+            name="清仓", text=["S"]*len(sell_all), textposition="top center",
+            textfont=dict(color="#1aad19", size=14, family="Arial Black"),
+            marker=dict(symbol="x-thin", size=14, color="#1aad19", line=dict(width=1,color="#fff")),
+            legendgroup="signal"), row=1, col=1)
 
-    # MACD
-    fig.add_trace(go.Scatter(x=df["date"], y=df["DIF"], mode="lines", name="DIF", line=dict(color="#e53935",width=1)), row=2, col=1)
-    fig.add_trace(go.Scatter(x=df["date"], y=df["DEA"], mode="lines", name="DEA(黄线)", line=dict(color="#ff9800",width=1.5)), row=2, col=1)
-    colors = ["#e53935" if v >= 0 else "#43a047" for v in df["MACD_HIST"].fillna(0)]
-    fig.add_trace(go.Bar(x=df["date"], y=df["MACD_HIST"], name="柱", marker_color=colors, showlegend=False), row=2, col=1)
-    fig.add_hline(y=0, line_dash="dash", line_color="#888", row=2, col=1)
+    # ---- 面板2: 成交量 ----
+    vol_colors = ["#e83939" if df["close"].iloc[i] >= df["open"].iloc[i] else "#1aad19"
+                  for i in range(len(df))]
+    fig.add_trace(go.Bar(x=df["date"], y=df["volume"], name="量",
+        marker=dict(color=vol_colors, opacity=0.4), showlegend=False,
+        hoverinfo="y"), row=2, col=1)
 
-    # 净值
+    # ---- 面板3: MACD ----
+    macd_red = ["#e83939" if v >= 0 else "#1aad19" for v in df["MACD_HIST"].fillna(0)]
+    fig.add_trace(go.Bar(x=df["date"], y=df["MACD_HIST"], name="MACD柱",
+        marker=dict(color=macd_red), showlegend=False, opacity=0.8,
+        hoverinfo="y"), row=3, col=1)
+    fig.add_trace(go.Scatter(x=df["date"], y=df["DIF"], mode="lines",
+        name="DIF", line=dict(color="#ffffff",width=0.8), showlegend=False), row=3, col=1)
+    fig.add_trace(go.Scatter(x=df["date"], y=df["DEA"], mode="lines",
+        name="DEA(黄线)", line=dict(color="#ffb340",width=1), showlegend=False), row=3, col=1)
+    fig.add_hline(y=0, line_dash="solid", line_color="#666666", line_width=0.5, row=3, col=1)
+
+    # ---- 面板4: 净值曲线 ----
     df["cum_strategy"] = np.cumprod(1 + df["strategy_ret"].fillna(0))
     df["cum_bh"] = df["close"] / df["close"].iloc[0]
-    fig.add_trace(go.Scatter(x=df["date"], y=df["cum_strategy"], mode="lines", name="策略净值", line=dict(color="#ff9800",width=2)), row=3, col=1)
-    fig.add_trace(go.Scatter(x=df["date"], y=df["cum_bh"], mode="lines", name="买入持有", line=dict(color="#9e9e9e",width=1,dash="dash")), row=3, col=1)
+    fig.add_trace(go.Scatter(x=df["date"], y=df["cum_strategy"], mode="lines",
+        name="策略净值", line=dict(color="#ffb340",width=1.8)), row=4, col=1)
+    fig.add_trace(go.Scatter(x=df["date"], y=df["cum_bh"], mode="lines",
+        name="买入持有", line=dict(color="#888888",width=1,dash="dot")), row=4, col=1)
+    fig.add_hline(y=1, line_dash="dash", line_color="#444444", line_width=0.5, row=4, col=1)
 
-    fig.update_layout(template="plotly_white", height=900, hovermode="x unified",
-                      margin=dict(l=10,r=10,t=60,b=10),
-                      legend=dict(orientation="h", yanchor="top", y=1.22, x=0))
-    fig.update_yaxes(title_text="价格", row=1, col=1)
-    fig.update_yaxes(title_text="MACD", row=2, col=1)
-    fig.update_yaxes(title_text="净值", row=3, col=1)
+    # ---- 全局布局 ----
+    fig.update_layout(
+        template="plotly_dark",
+        height=950,
+        hovermode="x unified",
+        margin=dict(l=10, r=20, t=30, b=10),
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0,
+            font=dict(size=11, color="#ccc"),
+            bgcolor="rgba(0,0,0,0.3)",
+        ),
+        font=dict(color="#999", size=11),
+        plot_bgcolor="#1a1a1a",
+        paper_bgcolor="#1a1a1a",
+        xaxis=dict(showgrid=False, zeroline=False),
+        dragmode="pan",
+    )
+
+    # 各面板样式
+    axis_style = dict(showgrid=True, gridcolor="#333333", gridwidth=0.5, zeroline=False, showline=True, linecolor="#444", linewidth=0.5)
+
+    fig.update_yaxes(title_text=stock_label, row=1, col=1, **axis_style, tickformat=".2f")
+    fig.update_yaxes(title_text="成交量", row=2, col=1, **axis_style, showticklabels=False)
+    fig.update_yaxes(title_text="MACD", row=3, col=1, **axis_style, showticklabels=True)
+    fig.update_yaxes(title_text="净值", row=4, col=1, **axis_style, tickformat=".2f")
+
+    fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
+    fig.update_xaxes(showgrid=False, row=2, col=1)
+    fig.update_xaxes(showgrid=False, row=3, col=1)
+    fig.update_xaxes(showgrid=True, gridcolor="#333333", gridwidth=0.5, row=4, col=1)
+
+    # 配置交互工具栏
+    fig.update_layout(
+        modebar_add=["drawline", "drawopenpath", "eraseshape"],
+        modebar_remove=["lasso2d", "select2d", "autoScale2d"],
+    )
 
     return fig, result
