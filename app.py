@@ -22,6 +22,7 @@ except Exception:
 from database import (  # noqa: E402
     verify_user, get_summary, get_results, save_result, extract_rating,
     get_watchlist, add_to_watchlist, remove_from_watchlist, get_watchlist_names,
+    save_note, get_note, get_all_notes,
 )
 from graph_builder import build_graph  # noqa: E402
 from graph_types import StockAgentState  # noqa: E402
@@ -144,7 +145,38 @@ def _bar():
 # ============================================
 if page.startswith("🏠"):
     st.title("市场概览");st.caption(f"👤 {USER} | {time.strftime('%H:%M:%S')}")
-    _bar();st.divider()
+    _bar()
+
+    # 板块轮动热力
+    st.divider()
+    st.subheader("🔥 板块轮动")
+    board_names = list(univ.get("boards", {}).keys())
+    board_changes = {}
+    with st.spinner("计算板块涨跌..."):
+        for b in board_names:
+            sample = get_by_board(b, limit=80)
+            if sample:
+                codes = [s["code"] for s in sample[:60]]
+                try:
+                    qs = get_quotes_batched(codes)
+                    if qs:
+                        avg_chg = sum(q["change_pct"] for q in qs.values() if q.get("change_pct", 0) != 0) / max(len(qs), 1)
+                        board_changes[b] = round(avg_chg, 2)
+                except Exception:
+                    pass
+
+    if board_changes:
+        bc = sorted(board_changes.items(), key=lambda x: x[1], reverse=True)
+        bcols = st.columns(len(bc))
+        for i, (bname, bchg) in enumerate(bc):
+            with bcols[i]:
+                color = "#e53935" if bchg > 0 else "#43a047" if bchg < 0 else "#888"
+                arrow = "🔥" if bchg > 0.5 else "▲" if bchg > 0 else "▼" if bchg < 0 else "—"
+                st.markdown(f"""<div style='background:#f6f8fa;border-radius:8px;padding:10px 6px;text-align:center'>
+                    <small style='color:#888'>{bname}</small><br>
+                    <b style='color:{color};font-size:1.1rem'>{arrow} {bchg:+.2f}%</b></div>""", unsafe_allow_html=True)
+
+    st.divider()
     ca,cb=st.columns([2,1])
     with ca:
         st.subheader("🔥 成交量活跃榜 Top20")
@@ -181,6 +213,14 @@ elif page.startswith("📈"):
         with st.spinner("加载K线..."):
             fig,df=build_kline_chart(ticker,name,tf)
         if fig:st.plotly_chart(fig,use_container_width=True,config={"displayModeBar":True,"displaylogo":False})
+
+        # 个人笔记
+        existing_note = get_note(USER, ticker)
+        note = st.text_area("📝 我的笔记", value=existing_note, placeholder="记录看好理由、关键价位、风险提示...",
+                            height=68, key=f"note_{ticker}")
+        if note != existing_note:
+            save_note(USER, ticker, note)
+            st.toast("笔记已保存")
 
         # 基本面数据
         with st.spinner("加载基本面..."):
@@ -636,8 +676,10 @@ elif page.startswith("⭐"):
             qs=_q(tuple(codes));valid=[q for q in qs if q.get("price",0)>0]
             st.caption(f"持仓 **{len(codes)}** 支 | 有效 **{len(valid)}**")
             if valid:
-                rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}"} for q in valid]
-                st.dataframe(pd.DataFrame(rows).style.map(_cc,subset=["涨跌%"]),hide_index=True,height=400)
+                notes_map = get_all_notes(USER)
+                rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}","笔记":notes_map.get(q["code"],"")[:30]} for q in valid]
+                st.dataframe(pd.DataFrame(rows).style.map(_cc,subset=["涨跌%"]),hide_index=True,height=400,
+                           column_config={"笔记": st.column_config.TextColumn(width="medium")})
         else:st.info("空。去「全市场搜索」添加。")
     with cm:
         batch=st.text_area("批量导入",placeholder="600519,000858")

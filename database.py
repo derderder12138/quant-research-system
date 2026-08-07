@@ -171,6 +171,38 @@ def remove_from_watchlist(username: str, list_name: str, codes: List[str]) -> in
     return removed
 
 
+# ========== 股票笔记 ==========
+def save_note(username: str, ticker: str, note: str) -> None:
+    conn = _ensure_tables(username)
+    conn.execute("""CREATE TABLE IF NOT EXISTS stock_notes
+        (ticker TEXT PRIMARY KEY, note TEXT DEFAULT '', updated_at TEXT DEFAULT (datetime('now','localtime')))""")
+    conn.execute("INSERT OR REPLACE INTO stock_notes (ticker, note, updated_at) VALUES (?,?,datetime('now','localtime'))",
+                 (ticker, note))
+    conn.commit(); conn.close()
+
+
+def get_note(username: str, ticker: str) -> str:
+    path = _db_path(username)
+    if not os.path.exists(path): return ""
+    conn = sqlite3.connect(path)
+    conn.execute("""CREATE TABLE IF NOT EXISTS stock_notes
+        (ticker TEXT PRIMARY KEY, note TEXT DEFAULT '', updated_at TEXT DEFAULT (datetime('now','localtime')))""")
+    row = conn.execute("SELECT note FROM stock_notes WHERE ticker=?", (ticker,)).fetchone()
+    conn.close()
+    return row[0] if row else ""
+
+
+def get_all_notes(username: str) -> Dict[str, str]:
+    path = _db_path(username)
+    if not os.path.exists(path): return {}
+    conn = sqlite3.connect(path)
+    conn.execute("""CREATE TABLE IF NOT EXISTS stock_notes
+        (ticker TEXT PRIMARY KEY, note TEXT DEFAULT '', updated_at TEXT DEFAULT (datetime('now','localtime')))""")
+    rows = conn.execute("SELECT ticker, note FROM stock_notes").fetchall()
+    conn.close()
+    return {r[0]: r[1] for r in rows}
+
+
 def get_watchlist_names(username: str) -> List[str]:
     path = _db_path(username)
     if not os.path.exists(path):
