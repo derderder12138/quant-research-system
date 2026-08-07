@@ -392,7 +392,7 @@ elif page.startswith("📋"):
             except Exception as e:
                 st.error(f"读取异常: {e}")
 
-    all_r = get_results(USER, 500)
+    all_r = get_results(USER, limit=500)
     if not all_r:
         st.info("暂无数据。请先运行「批量量化分析」或「个股深度分析」生成报告。")
     else:
