@@ -150,6 +150,7 @@ if page.startswith("🏠"):
     # 板块轮动热力
     st.divider()
     st.subheader("🔥 板块轮动")
+    univ = get_universe_stats()
     board_names = list(univ.get("boards", {}).keys())
     board_changes = {}
     with st.spinner("计算板块涨跌..."):
