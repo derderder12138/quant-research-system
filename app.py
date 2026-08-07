@@ -315,6 +315,7 @@ elif page.startswith("🎯"):
     st.caption("按 PE / 市值 / 板块 / 涨跌幅 筛选")
 
     from fundamental_data import get_fundamentals
+    univ = get_universe_stats()  # 确保在本地作用域
 
     col1, col2, col3 = st.columns(3)
     with col1:

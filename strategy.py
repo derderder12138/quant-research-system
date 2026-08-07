@@ -179,8 +179,8 @@ def optimize_ma_pairs(ticker: str, name: str = "") -> Tuple[Optional[go.Figure],
     )
 
     fig.update_layout(
-        template="plotly_white", height=850,
-        margin=dict(l=10, r=10, t=40, b=10),
+        template="plotly_dark", height=850,
+        margin=dict(l=10, r=10, t=40, b=10), plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
     )
     fig.update_yaxes(title_text="短线 MA 周期", row=1, col=1)
     fig.update_xaxes(title_text="长线 MA 周期", row=1, col=1)
@@ -261,8 +261,8 @@ def build_strategy_chart(ticker: str, name: str = "") -> Tuple[Optional[go.Figur
     fig.add_trace(go.Scatter(x=df_valid["date"], y=df_valid["cum_bh"], mode="lines",
                    name="买入持有", line=dict(color="#9e9e9e", width=1.5, dash="dash")), row=2, col=1)
 
-    fig.update_layout(template="plotly_white", height=700, hovermode="x unified",
-                      margin=dict(l=10, r=10, t=50, b=10),
+    fig.update_layout(template="plotly_dark", height=700, hovermode="x unified",
+                      margin=dict(l=10, r=10, t=50, b=10), plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
                       legend=dict(orientation="h", yanchor="top", y=1.18, x=0))
     fig.update_yaxes(title_text="价格", row=1, col=1)
     fig.update_yaxes(title_text="净值", row=2, col=1)
