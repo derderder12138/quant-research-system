@@ -33,6 +33,7 @@ from charts import build_kline_chart, build_return_distribution, TIMEFRAME_DAYS 
 from risk_metrics import calculate_metrics, metrics_summary  # noqa: E402
 from strategy import build_strategy_chart, optimize_ma_pairs  # noqa: E402
 from strategy_custom import build_custom_chart  # noqa: E402
+from fundamental_data import get_single_fundamentals  # noqa: E402
 
 refresh_universe(force=False)
 st.set_page_config(page_title="量化投研系统", page_icon="📈", layout="wide")
@@ -124,7 +125,7 @@ with st.sidebar:
         ok=sum(1 for r in st.session_state["batch_results"] if r.get("data_fetch_success"))
         st.success(f"✅ 上次分析: {ok}/{len(st.session_state['batch_results'])} 成功")
 
-    page=st.radio("",["🏠 市场概览","📈 个股深度","📐 策略回测","🔍 全市场搜索","⭐ 持仓管理","🚀 批量分析","📋 历史报告","🛡️ 智能风控"],label_visibility="collapsed")
+    page=st.radio("",["🏠 市场概览","📈 个股深度","📐 策略回测","🔍 全市场搜索","🎯 条件选股","📊 多股对比","⭐ 持仓管理","🚀 批量分析","📋 历史报告","🛡️ 智能风控"],label_visibility="collapsed")
     st.divider()
     s=get_summary(USER);st.metric("我的报告",s["total"])
     if s["total"]>0:st.metric("成功率",f"{s['success']/s['total']*100:.0f}%")
@@ -180,6 +181,25 @@ elif page.startswith("📈"):
         with st.spinner("加载K线..."):
             fig,df=build_kline_chart(ticker,name,tf)
         if fig:st.plotly_chart(fig,use_container_width=True,config={"displayModeBar":True,"displaylogo":False})
+
+        # 基本面数据
+        with st.spinner("加载基本面..."):
+            fd = get_single_fundamentals(ticker)
+        if fd and fd.get("pe", 0) > 0:
+            st.divider(); st.subheader("📋 基本面速览")
+            fc1, fc2, fc3, fc4, fc5, fc6 = st.columns(6)
+            fc1.metric("市盈率(动)", f"{fd['pe']:.2f}")
+            fc2.metric("总市值(亿)", f"{fd['market_cap']:,.0f}")
+            fc3.metric("流通市值(亿)", f"{fd['circ_market_cap']:,.0f}")
+            fc4.metric("换手率", f"{fd['turnover_rate']:.2f}%")
+            fc5.metric("52周最高", f"{fd['high_52w']:.2f}")
+            fc6.metric("52周最低", f"{fd['low_52w']:.2f}")
+            fc7, fc8, fc9, fc10 = st.columns(4)
+            fc7.metric("近一年涨幅", f"{fd['y1_change']:+.2f}%")
+            fc8.metric("近半年涨幅", f"{fd['hy_change']:+.2f}%")
+            fc9.metric("年初至今", f"{fd['ytd_change']:+.2f}%")
+            fc10.metric("ROE", f"{fd['roe']:.2f}%")
+
         if df is not None and not df.empty:
             st.divider();st.subheader("📊 量化指标")
             m=calculate_metrics(df)
@@ -287,6 +307,184 @@ elif page.startswith("📐"):
                     best=odf.iloc[0];st.success(f"🏆 MA{int(best['short'])}×MA{int(best['long'])} 夏普:{best['sharpe']:.2f} 超额:{best['excess']:.2f}%")
 
 # ============================================
+# ============================================
+# 🎯 条件选股
+# ============================================
+elif page.startswith("🎯"):
+    st.title("🎯 条件选股器")
+    st.caption("按 PE / 市值 / 板块 / 涨跌幅 筛选")
+
+    from fundamental_data import get_fundamentals
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        pe_max = st.number_input("PE(动) 上限", value=50, min_value=1, max_value=500, step=5,
+                                 help="市盈率越低越便宜，<15为低估，>50为高估")
+    with col2:
+        cap_min = st.number_input("市值下限(亿)", value=50, min_value=0, max_value=10000, step=10)
+    with col3:
+        board_f = st.selectbox("板块", ["全部"] + sorted(univ.get("boards", {}).keys()))
+
+    col4, col5 = st.columns(2)
+    with col4:
+        chg_min = st.number_input("今日涨幅下限%", value=-10.0, min_value=-20.0, max_value=20.0, step=0.5)
+    with col5:
+        chg_max = st.number_input("今日涨幅上限%", value=10.0, min_value=-20.0, max_value=20.0, step=0.5)
+
+    st.divider()
+
+    if st.button("🔍 开始筛选", type="primary", use_container_width=True):
+        with st.spinner(f"从 {univ['total']:,} 支股票中筛选..."):
+            # 先按板块取候选
+            if board_f == "全部":
+                candidates = []
+                for b in univ.get("boards", {}).keys():
+                    candidates.extend(get_by_board(b, limit=300))
+            else:
+                candidates = get_by_board(board_f, limit=500)
+
+            if not candidates:
+                st.warning("无候选股票。")
+            else:
+                codes = [c["code"] for c in candidates]
+                # 分 3 批获取基本面（每批 50）
+                all_fd = get_fundamentals(codes[:150])
+                if not all_fd:
+                    st.warning("基本面数据获取失败，请稍后重试。")
+                else:
+                    # 筛选
+                    results = []
+                    for code, fd in all_fd.items():
+                        pe = fd.get("pe", 0)
+                        cap = fd.get("market_cap", 0)
+                        chg = fd.get("change_pct", 0)
+                        if pe <= 0 or cap <= 0:
+                            continue
+                        if pe <= pe_max and cap >= cap_min and chg_min <= chg <= chg_max:
+                            results.append(fd)
+
+                    if results:
+                        st.success(f"筛选出 {len(results)} 支股票")
+                        rows = [{
+                            "代码": r["code"] if "code" in r else "",
+                            "名称": r.get("name", ""),
+                            "现价": f"{r['price']:.2f}",
+                            "涨跌%": f"{r['change_pct']:+.2f}%",
+                            "PE(动)": f"{r['pe']:.2f}",
+                            "市值(亿)": f"{r['market_cap']:,.0f}",
+                            "换手%": f"{r['turnover_rate']:.2f}",
+                            "ROE%": f"{r.get('roe', 0):.2f}",
+                        } for r in results[:200]]
+
+                        # 把 code 从 fd 的 key 提取
+                        for i, (code, r) in enumerate(zip(all_fd.keys(), results)):
+                            if i < len(rows):
+                                rows[i]["代码"] = code
+
+                        df = pd.DataFrame(rows)
+                        if "涨跌%" in df.columns:
+                            st.dataframe(df.style.map(_cc, subset=["涨跌%"]), hide_index=True, height=500)
+                        else:
+                            st.dataframe(df, hide_index=True, height=500)
+
+                        # 批量加入持仓
+                        sel = st.multiselect("选择加入持仓", [r["代码"] for r in rows], key="scr_sel")
+                        if st.button(f"📥 加入持仓 ({len(sel)}支)", disabled=not sel):
+                            add_to_watchlist(USER, "默认池", sel)
+                            st.toast(f"已添加 {len(sel)} 支")
+                            st.rerun()
+                    else:
+                        st.info("无股票满足条件，请放宽筛选条件。")
+
+# ============================================
+# 📊 多股对比
+# ============================================
+elif page.startswith("📊"):
+    st.title("📊 多股对比")
+    st.caption("选中多支股票，同时展示走势、基本面、技术指标")
+
+    # 快速选择：持仓中的股票
+    wl_codes = get_watchlist(USER) or ["600519", "000858", "300750"]
+    selected = st.multiselect("选择对比股票（建议 2-4 支）", wl_codes,
+                              default=wl_codes[:3] if len(wl_codes) >= 3 else wl_codes,
+                              max_selections=6, key="compare_select")
+
+    if selected:
+        tabs = st.tabs(["📈 走势叠加", "📋 基本面对比", "📊 指标对比"])
+
+        # Tab 1: 走势叠加
+        with tabs[0]:
+            tf = st.radio("时间", list(TIMEFRAME_DAYS.keys()), horizontal=True, index=3, key="comp_tf")
+            from charts import _fetch_history
+            import plotly.graph_objects as go
+
+            fig_c = go.Figure()
+            colors = ["#e83939", "#33a3ff", "#ffb340", "#9b30ff", "#1aad19", "#ff9800"]
+            for idx, t in enumerate(selected):
+                df_c = _fetch_history(t, TIMEFRAME_DAYS.get(tf, 200))
+                if df_c.empty:
+                    continue
+                df_c["norm"] = df_c["close"] / df_c["close"].iloc[0] * 100
+                info_q = _q((t,))
+                nm = info_q[0]["name"] if info_q and info_q[0].get("name") else t
+                fig_c.add_trace(go.Scatter(x=df_c["date"], y=df_c["norm"], mode="lines",
+                    name=f"{t} {nm}", line=dict(color=colors[idx % len(colors)], width=2)))
+
+            fig_c.add_hline(y=100, line_dash="dash", line_color="#666", line_width=0.5)
+            fig_c.update_layout(template="plotly_dark", height=500, hovermode="x unified",
+                                plot_bgcolor="#1a1a1a", paper_bgcolor="#1a1a1a",
+                                margin=dict(l=10, r=10, t=30, b=10),
+                                yaxis_title="归一化价格 (基期=100)",
+                                legend=dict(orientation="h", yanchor="bottom", y=1.01, x=0))
+            st.plotly_chart(fig_c, use_container_width=True, config={"displaylogo": False})
+
+        # Tab 2: 基本面对比
+        with tabs[1]:
+            from fundamental_data import get_fundamentals
+            fd_all = get_fundamentals(selected)
+            if fd_all:
+                comp_rows = []
+                for code, fd in fd_all.items():
+                    comp_rows.append({
+                        "代码": code, "名称": fd.get("name", ""),
+                        "现价": f"{fd['price']:.2f}",
+                        "涨跌%": f"{fd['change_pct']:+.2f}%",
+                        "PE(动)": f"{fd['pe']:.2f}",
+                        "市值(亿)": f"{fd['market_cap']:,.0f}",
+                        "换手%": f"{fd['turnover_rate']:.2f}",
+                        "ROE%": f"{fd.get('roe', 0):.2f}",
+                        "近1年%": f"{fd['y1_change']:+.2f}%",
+                        "年初%": f"{fd['ytd_change']:+.2f}%",
+                    })
+                st.dataframe(pd.DataFrame(comp_rows).style.map(_cc, subset=["涨跌%", "近1年%", "年初%"]),
+                           hide_index=True, height=300)
+
+        # Tab 3: 技术指标对比
+        with tabs[2]:
+            from risk_metrics import calculate_metrics
+            ind_rows = []
+            for t in selected:
+                from charts import _fetch_history
+                df_i = _fetch_history(t, 400)
+                if not df_i.empty:
+                    m = calculate_metrics(df_i)
+                    if "error" not in m:
+                        info_q = _q((t,))
+                        nm = info_q[0]["name"] if info_q and info_q[0].get("name") else t
+                        ind_rows.append({
+                            "代码": t, "名称": nm,
+                            "年化收益%": f"{m['annual_return']:.2f}",
+                            "年化波动%": f"{m['annual_volatility']:.2f}",
+                            "夏普比率": f"{m['sharpe_ratio']:.2f}",
+                            "最大回撤%": f"{m['max_drawdown']:.2f}",
+                            "日胜率%": f"{m['win_rate']:.1f}",
+                            "趋势": m['trend'],
+                        })
+            if ind_rows:
+                st.dataframe(pd.DataFrame(ind_rows), hide_index=True, height=250)
+            else:
+                st.info("数据不足")
+
 # 全市场搜索 / 持仓管理 / 历史报告（精简但完整）
 # ============================================
 elif page.startswith("🔍"):
