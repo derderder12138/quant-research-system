@@ -49,6 +49,10 @@ st.markdown("""<style>
     [data-testid="stExpander"] h1,[data-testid="stExpander"] h2,[data-testid="stExpander"] h3,
     .stMarkdown h1,.stMarkdown h2,.stMarkdown h3{font-size:1rem!important;font-weight:700!important}
     [data-testid="stExpander"] p,.stMarkdown p{font-size:0.9rem!important}
+    /* 表格白底黑字，数字清晰 */
+    [data-testid="stDataFrame"] td,[data-testid="stTable"] td{color:#111!important;background:#fff!important;border-color:#ddd!important}
+    [data-testid="stDataFrame"] th,[data-testid="stTable"] th{color:#111!important;background:#eee!important;font-weight:700!important}
+    .stDataFrame td,.stDataFrame th,.dvn-scroller td{color:#111!important;background:#fff!important}
 </style>""", unsafe_allow_html=True)
 
 # 报告文本清洗：把 ### 标题转成加粗文本，统一字号
