@@ -292,7 +292,16 @@ elif page.startswith("📐"):
 elif page.startswith("🔍"):
     st.title("全市场搜索")
     univ = get_universe_stats()
-    st.caption(f"A股 {univ['total']:,} 支 | 支持代码/名称模糊搜索")
+    st.caption(f"A股 {univ['total']:,} 支 | 支持代码/名称/拼音搜索 | 指数ETF可搜")
+
+    # 实时指数速览
+    if indices:
+        idx_cols = st.columns(len(indices))
+        for i, idx in enumerate(indices):
+            with idx_cols[i]:
+                c = "#e53935" if idx["change"] > 0 else "#43a047" if idx["change"] < 0 else "#888"
+                a = "▲" if idx["change"] > 0 else "▼"
+                st.metric(idx["name"], f"{idx['price']:.2f}", f"{a}{idx['change']:+.2f}({idx['change_pct']:+.2f}%)")
 
     col_q, col_f, col_n = st.columns([3, 1.5, 1])
     with col_q:
