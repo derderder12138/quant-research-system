@@ -103,13 +103,21 @@ def get_results(username: str, ticker: Optional[str] = None, limit: int = 50) ->
     path = _db_path(username)
     if not os.path.exists(path):
         return []
-    conn = sqlite3.connect(path); conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect(path)
     if ticker:
         rows = conn.execute("SELECT * FROM analysis_results WHERE ticker=? ORDER BY created_at DESC LIMIT ?", (ticker, limit)).fetchall()
     else:
         rows = conn.execute("SELECT * FROM analysis_results ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    # 手动构造 dict，不依赖 row_factory（避免云端兼容问题）
+    cols = ["id","ticker","fetch_success","error_message","technical_analysis","fundamental_analysis","final_report","rating","created_at"]
+    results = []
+    for row in rows:
+        d = {}
+        for i, col in enumerate(cols):
+            d[col] = row[i] if i < len(row) else None
+        results.append(d)
     conn.close()
-    return [dict(r) for r in rows]
+    return results
 
 
 def get_summary(username: str) -> Dict:
