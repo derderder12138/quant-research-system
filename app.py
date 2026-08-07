@@ -35,6 +35,7 @@ from risk_metrics import calculate_metrics, metrics_summary  # noqa: E402
 from strategy import build_strategy_chart, optimize_ma_pairs  # noqa: E402
 from strategy_custom import build_custom_chart  # noqa: E402
 from fundamental_data import get_single_fundamentals  # noqa: E402
+from industry import classify_batch, get_industry_list  # noqa: E402
 
 refresh_universe(force=False)
 st.set_page_config(page_title="量化投研系统", page_icon="📈", layout="wide")
@@ -355,8 +356,12 @@ elif page.startswith("📐"):
         else:
             st.caption("20×20=400 组MA组合，按夏普排名")
             if st.button("🚀 参数优化",type="primary"):
-                with st.spinner("扫描中(~30秒)..."):
-                    ofig,odf=optimize_ma_pairs(ticker,name)
+                # 缓存：同股票 30 分钟内不重复计算
+                @st.cache_data(ttl=1800, show_spinner=False)
+                def _cached_optimize(t):
+                    return optimize_ma_pairs(t, "")
+                with st.spinner("扫描中(~30秒)…"):
+                    ofig, odf = _cached_optimize(ticker)
                 if ofig is not None:
                     st.plotly_chart(ofig,use_container_width=True,config={"displaylogo":False})
                     top=odf.head(50)[["short","long","total_return","bh_return","excess","sharpe","max_drawdown","win_rate","total_trades"]]
@@ -560,11 +565,14 @@ elif page.startswith("🔍"):
                 a = "▲" if idx["change"] > 0 else "▼"
                 st.metric(idx["name"], f"{idx['price']:.2f}", f"{a}{idx['change']:+.2f}({idx['change_pct']:+.2f}%)")
 
-    col_q, col_f, col_n = st.columns([3, 1.5, 1])
+    col_q, col_f1, col_f2, col_n = st.columns([2.5, 1.2, 1.2, 1])
     with col_q:
         qry = st.text_input("搜索", placeholder="茅台 / 宁德 / 600519 / 银行")
-    with col_f:
+    with col_f1:
         bf = st.selectbox("板块", ["全部"] + sorted(univ.get("boards", {}).keys()))
+    with col_f2:
+        industries = ["全部"] + get_industry_list()
+        ind_f = st.selectbox("行业", industries)
     with col_n:
         limit_n = st.selectbox("显示数量", [50, 100, 200, 500], index=1)
 
@@ -572,6 +580,9 @@ elif page.startswith("🔍"):
         results = search_stocks(qry, max(limit_n, 200))
         if bf != "全部":
             results = [r for r in results if r.get("board") == bf]
+        if ind_f != "全部":
+            codes_industry = classify_batch([r["code"] for r in results])
+            results = [r for r in results if codes_industry.get(r["code"], "其他") == ind_f]
         results = results[:limit_n]
 
         if results:
@@ -593,6 +604,7 @@ elif page.startswith("🔍"):
                 row = {
                     "代码": r["code"],
                     "名称": r["name"],
+                    "行业": classify_batch([r["code"]]).get(r["code"], "其他"),
                     "板块": r["board"],
                     "市场": r["market"],
                 }
