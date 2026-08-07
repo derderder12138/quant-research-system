@@ -47,9 +47,10 @@ def _backtest_ma_pair(df: pd.DataFrame, short: int, long: int) -> Optional[Dict]
     df.loc[(df["diff"] < 0) & (df["diff"].shift(1) >= 0), "signal"] = -1  # 死叉
 
     df_valid = df.dropna(subset=["MA_S", "MA_L"]).copy()
-    df_valid["position"] = 0  # type: ignore[reportCallIssue]
-    df_valid["ret"] = df_valid["close"].pct_change()  # type: ignore[reportCallIssue]
-    df_valid["strategy_ret"] = 0.0  # type: ignore[reportCallIssue]
+    df_valid = df_valid.copy()
+    df_valid.loc[:, "position"] = 0
+    df_valid.loc[:, "ret"] = df_valid["close"].pct_change()
+    df_valid.loc[:, "strategy_ret"] = 0.0
     if len(df_valid) < 10:
         return None
 
