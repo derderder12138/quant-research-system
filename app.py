@@ -147,6 +147,23 @@ if page.startswith("🏠"):
     st.title("市场概览");st.caption(f"👤 {USER} | {time.strftime('%H:%M:%S')}")
     _bar()
 
+    # 市场广度
+    col_br1,col_br2,col_br3,col_br4=st.columns(4)
+    try:
+        from real_time import get_realtime_quotes
+        sample=['600519','000001','300750','000858','600036','601318','000725','002415','601012','600900',
+                '601398','600276','688981','002594','000002','601668','002230','002371','300059','600030']
+        qs=get_realtime_quotes(sample)
+        up=sum(1 for q in qs if q.get('change',0)>0)
+        down=sum(1 for q in qs if q.get('change',0)<0)
+        total=len([q for q in qs if q.get('price',0)>0])
+        col_br1.metric("📈 上涨家数",up)
+        col_br2.metric("📉 下跌家数",down)
+        col_br3.metric("📊 样本数",total)
+        col_br4.metric("🔥 涨跌比",f"{up}:{down}" if total else "-")
+    except Exception:
+        pass
+
     # 板块轮动热力
     st.divider()
     st.subheader("🔥 板块轮动")
@@ -804,7 +821,15 @@ elif page.startswith("📋"):
         if sr:df_f=df_f[df_f["rating"].isin(sr)]
         if kw:df_f=df_f[df_f["final_report"].fillna("").str.contains(kw,case=False)]
         st.caption(f"{len(df_f)}/{len(df_all)} 条")
-        st.dataframe(df_f[["时间","ticker","状态","rating","technical_analysis","fundamental_analysis","final_report"]].rename(columns={"ticker":"代码","rating":"评级","technical_analysis":"技术面","fundamental_analysis":"基本面","final_report":"CIO决策"}),hide_index=True,height=400)
+
+        # CSV 导出按钮
+        export_df = df_f[["时间","ticker","状态","rating","technical_analysis","fundamental_analysis","final_report"]].rename(
+            columns={"ticker":"代码","rating":"评级","technical_analysis":"技术面","fundamental_analysis":"基本面","final_report":"CIO决策"})
+        csv = export_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button("📥 导出 CSV", csv, f"量化分析报告_{USER}.csv", "text/csv",
+                          use_container_width=True)
+
+        st.dataframe(export_df, hide_index=True, height=400)
         st.divider();st.subheader("单股详情")
         detail=st.selectbox("代码",sorted(df_all["ticker"].dropna().unique()))
         if detail:
