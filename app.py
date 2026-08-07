@@ -90,27 +90,6 @@ def _run_one(t):
     try:return g.invoke(s)  # type: ignore[reportAttributeAccessIssue]
     except Exception as e:return{**s,"error_message":str(e)}
 
-# ═══════════════════════════════════════════
-# 全局批量分析处理器（任何页面都会执行）
-# ═══════════════════════════════════════════
-if st.session_state["batch_running"]:
-    tickers = st.session_state["batch_tickers"]
-    i = st.session_state["batch_i"]
-    total = st.session_state["batch_total"]
-    results = st.session_state["batch_results"]
-
-    if i < total:
-        _init_rt()
-        t = tickers[i]
-        final = _run_one(t)
-        save_result(USER, final)
-        results.append(final)
-        st.session_state["batch_i"] = i + 1
-        st.session_state["batch_results"] = results
-        st.rerun()
-    else:
-        st.session_state["batch_running"] = False
-
 # ============================================
 # 侧边栏
 # ============================================
@@ -128,15 +107,10 @@ with st.sidebar:
                 <span style='color:{c};font-weight:600'> {a}{idx['change']:+.2f}({idx['change_pct']:+.2f}%)</span></div>""",unsafe_allow_html=True)
     st.divider()
 
-    # 批量分析进度——全页面可见
-    if st.session_state["batch_running"]:
-        i=st.session_state["batch_i"];t=st.session_state["batch_total"]
-        st.markdown("### ⏳ 分析中")
-        st.progress(i/t if t else 0)
-        st.caption(f"{i}/{t} · 可自由切换页面，不中断")
-    elif st.session_state.get("batch_results"):
+    # 上次分析结果摘要
+    if st.session_state.get("batch_results"):
         ok=sum(1 for r in st.session_state["batch_results"] if r.get("data_fetch_success"))
-        st.success(f"✅ 上次: {ok}/{len(st.session_state['batch_results'])} 成功")
+        st.success(f"✅ 上次分析: {ok}/{len(st.session_state['batch_results'])} 成功")
 
     page=st.radio("",["🏠 市场概览","📈 个股深度","📐 策略回测","🔍 全市场搜索","⭐ 持仓管理","🚀 批量分析","📋 历史报告","🛡️ 智能风控"],label_visibility="collapsed")
     st.divider()
@@ -304,57 +278,93 @@ elif page.startswith("⭐"):
             if st.button("🗑️ 移除",use_container_width=True,disabled=not rm):remove_from_watchlist(USER,al,rm);st.rerun()
 
 # ============================================
-# 🚀 批量分析
+# 🚀 批量分析（一次执行，无闪烁，实时进度）
 # ============================================
 elif page.startswith("🚀"):
     st.title("批量量化分析")
     _init_rt()
 
-    # 显示进度
-    if st.session_state["batch_running"]:
-        i = st.session_state["batch_i"]; total = st.session_state["batch_total"]
-        st.warning(f"⏳ 分析中: {i}/{total}")
-        st.progress(i / total if total else 0)
-        st.caption("正在逐支分析，可自由切换页面——后台不中断。")
-        st.stop()
-
-    # 上次结果
-    if st.session_state.get("batch_results"):
-        results = st.session_state["batch_results"]
-        ok = sum(1 for r in results if r.get("data_fetch_success"))
-        st.success(f"✅ 上次完成: {ok}/{len(results)} 成功")
-        with st.expander("查看详情"):
-            for r in results:
-                icon = "✅" if r.get("data_fetch_success") else "❌"
-                st.caption(f"{icon} {r['ticker']}: {r.get('error_message','')[:60]}")
-        if st.button("清除结果"): st.session_state["batch_results"] = []
-
-    # ---- 配置新任务 ----
-    col_in,col_cfg=st.columns([2,1])
+    # ---- 配置 ----
+    col_in, col_cfg = st.columns([2, 1])
     with col_in:
-        src=st.radio("标的来源",["我的持仓池","实时活跃榜 Top20","手动输入"],horizontal=True)
+        src = st.radio("标的来源", ["我的持仓池", "实时活跃榜 Top20", "手动输入"], horizontal=True)
         if "持仓" in src:
-            pn=get_watchlist_names(USER) or ["默认池"];sp=st.selectbox("池",pn)
-            tickers=get_watchlist(USER,sp)
-            if tickers:v,iv=validate_tickers(tickers);tickers=v
+            pn = get_watchlist_names(USER) or ["默认池"]; sp = st.selectbox("池", pn)
+            tickers = get_watchlist(USER, sp)
+            if tickers: v, iv = validate_tickers(tickers); tickers = v
             st.success(f"有效: **{len(tickers)}** 支" if tickers else "池为空")
-        elif "活跃" in src:tickers=[q["code"] for q in _active(20)];st.info(f"{len(tickers)} 支")
+        elif "活跃" in src:
+            tickers = [q["code"] for q in _active(20)]
+            st.info(f"{len(tickers)} 支")
         else:
-            raw=st.text_area("代码（每行一个）","600519\n000858\n300750\n000001")
-            tickers=[t.strip() for t in raw.split("\n") if t.strip()]
-            v,iv=validate_tickers(tickers);tickers=v
+            raw = st.text_area("代码（每行一个）", "600519\n000858\n300750\n000001")
+            tickers = [t.strip() for t in raw.split("\n") if t.strip()]
+            v, iv = validate_tickers(tickers); tickers = v
     with col_cfg:
         st.caption(f"待分析: **{len(tickers) if tickers else 0}** 支")
-        st.caption("逐支执行，可随时切换页面")
+        st.caption("每支约 15-30 秒")
+        st.caption("分析期间请勿切换页面")
 
     st.divider()
-    if st.button("▶️ 启动异步分析（切换页面不中断）",type="primary",use_container_width=True,disabled=not bool(tickers)):
-        st.session_state["batch_tickers"]=tickers
-        st.session_state["batch_i"]=0
-        st.session_state["batch_total"]=len(tickers)
-        st.session_state["batch_results"]=[]
-        st.session_state["batch_running"]=True
-        st.rerun()
+
+    if st.button("▶️ 开始批量分析", type="primary", use_container_width=True, disabled=not bool(tickers)):
+        total = len(tickers)
+        results = []
+        pbar = st.progress(0, text="准备中...")
+        status_area = st.empty()
+
+        success_count = 0
+        for idx, t in enumerate(tickers):
+            # 更新进度条（不触发完整页面刷新）
+            pbar.progress((idx) / total, text=f"正在分析: {t} ({idx+1}/{total})")
+
+            # 执行分析
+            final = _run_one(t)
+            save_result(USER, final)
+            results.append(final)
+
+            if final.get("data_fetch_success"):
+                success_count += 1
+
+            # 实时显示刚完成的结果
+            icon = "✅" if final.get("data_fetch_success") else "❌"
+            err = final.get("error_message", "")[:50]
+            status_area.markdown(
+                f"{icon} **{t}** "
+                + (f"| {final.get('rating','')}" if final.get("data_fetch_success") else f"| {err}")
+                + f"<br><small>{time.strftime('%H:%M:%S')}</small>",
+                unsafe_allow_html=True,
+            )
+
+        pbar.progress(1.0, text=f"完成! {success_count}/{total} 成功")
+
+        # 汇总
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        c1.metric("成功", success_count)
+        c2.metric("失败", total - success_count)
+        c3.metric("合计", total)
+
+        # 失败详情
+        failed = [r for r in results if not r.get("data_fetch_success")]
+        if failed:
+            with st.expander(f"❌ {len(failed)} 支失败详情"):
+                for r in failed:
+                    st.warning(f"**{r['ticker']}**: {r.get('error_message', '未知错误')[:150]}")
+
+        # 成功结果一览
+        ok_results = [r for r in results if r.get("data_fetch_success")]
+        if ok_results:
+            with st.expander(f"✅ {len(ok_results)} 支分析结果"):
+                for r in ok_results:
+                    st.markdown(f"**{r['ticker']}** | 评级: {r.get('rating', extract_rating(r.get('final_report','')) or '—')}")
+                    st.caption((r.get('final_report', '') or '')[:150] + "...")
+
+        st.success("已自动存入历史报告，前往 📋 历史报告 查看完整内容。")
+
+        # 保存到 session 供侧边栏显示
+        st.session_state["batch_results"] = results
+        st.session_state["batch_running"] = False
 
 # ============================================
 # 📋 历史报告
