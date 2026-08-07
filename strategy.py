@@ -55,7 +55,7 @@ def _backtest_ma_pair(df: pd.DataFrame, short: int, long: int) -> Optional[Dict]
         return None
 
     # 持仓状态
-    df_valid["position"] = 0
+    df_valid.loc[:, "position"] = 0
     in_pos = False
     for i in range(1, len(df_valid)):
         idx = df_valid.index[i]
@@ -67,8 +67,8 @@ def _backtest_ma_pair(df: pd.DataFrame, short: int, long: int) -> Optional[Dict]
         else:
             df_valid.loc[idx, "position"] = df_valid.loc[prev, "position"]
 
-    df_valid["ret"] = df_valid["close"].pct_change()
-    df_valid["strategy_ret"] = df_valid["ret"] * df_valid["position"].shift(1)
+    df_valid.loc[:, "ret"] = df_valid["close"].pct_change()
+    df_valid.loc[:, "strategy_ret"] = df_valid["ret"] * df_valid["position"].shift(1)
 
     n = len(df_valid)
     years = max(n / 252, 0.1)
@@ -215,10 +215,10 @@ def build_strategy_chart(ticker: str, name: str = "") -> Tuple[Optional[go.Figur
     df["signal"] = 0
     df.loc[(df["diff"] > 0) & (df["diff"].shift(1) <= 0), "signal"] = 1
     df.loc[(df["diff"] < 0) & (df["diff"].shift(1) >= 0), "signal"] = -1
-    df_valid = df.dropna(subset=["MA_S", "MA_L"])
+    df_valid = df.dropna(subset=["MA_S", "MA_L"]).copy()
 
     # 计算净值
-    df_valid["position"] = 0
+    df_valid.loc[:, "position"] = 0
     in_pos = False
     for i in range(1, len(df_valid)):
         idx = df_valid.index[i]; prev = df_valid.index[i - 1]
@@ -228,10 +228,10 @@ def build_strategy_chart(ticker: str, name: str = "") -> Tuple[Optional[go.Figur
             df_valid.loc[idx, "position"] = 0; in_pos = False
         else:
             df_valid.loc[idx, "position"] = df_valid.loc[prev, "position"]
-    df_valid["ret"] = df_valid["close"].pct_change()
-    df_valid["strategy_ret"] = df_valid["ret"] * df_valid["position"].shift(1)
-    df_valid["cum_strategy"] = np.cumprod(1 + df_valid["strategy_ret"].fillna(0))
-    df_valid["cum_bh"] = df_valid["close"] / df_valid["close"].iloc[0]
+    df_valid.loc[:, "ret"] = df_valid["close"].pct_change()
+    df_valid.loc[:, "strategy_ret"] = df_valid["ret"] * df_valid["position"].shift(1)
+    df_valid.loc[:, "cum_strategy"] = np.cumprod(1 + df_valid["strategy_ret"].fillna(0))
+    df_valid.loc[:, "cum_bh"] = df_valid["close"] / df_valid["close"].iloc[0]
 
     title = f"{ticker} {name} — 25日线 × 25月线" if name else f"{ticker} — 25日线 × 25月线"
 
