@@ -371,8 +371,30 @@ elif page.startswith("🚀"):
 # ============================================
 elif page.startswith("📋"):
     st.title("历史报告")
-    all_r=get_results(USER,500)
-    if not all_r:st.info("暂无数据。")
+
+    # ---- 数据库自诊断 ----
+    from database import _get_db_dir, _db_path
+    dd = _get_db_dir(); df = _db_path(USER); fe = os.path.exists(df)
+    with st.expander("🔧 数据库诊断", expanded=False):
+        st.caption(f"目录: {dd}")
+        st.caption(f"文件: {df}")
+        st.caption(f"存在: {'是' if fe else '否'} | 大小: {os.path.getsize(df) if fe else 0} bytes")
+        if fe:
+            try:
+                import sqlite3
+                c = sqlite3.connect(df)
+                cnt = c.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0]
+                st.caption(f"记录数: {cnt}")
+                if cnt > 0:
+                    for r in c.execute("SELECT ticker,fetch_success,rating,created_at FROM analysis_results ORDER BY created_at DESC LIMIT 5").fetchall():
+                        st.caption(f"  {r[0]} | {'OK' if r[1] else 'FAIL'} | {r[2] or '-'} | {r[3]}")
+                c.close()
+            except Exception as e:
+                st.error(f"读取异常: {e}")
+
+    all_r = get_results(USER, 500)
+    if not all_r:
+        st.info("暂无数据。请先运行「批量量化分析」或「个股深度分析」生成报告。")
     else:
         df_all=pd.DataFrame(all_r)
         if "fetch_success" in df_all.columns:df_all["状态"]=df_all["fetch_success"].apply(lambda x:"✅" if x else "❌")
