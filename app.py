@@ -32,6 +32,7 @@ from stock_universe import search_stocks, refresh_universe, get_universe_stats, 
 from charts import build_kline_chart, build_return_distribution, TIMEFRAME_DAYS  # noqa: E402
 from risk_metrics import calculate_metrics, metrics_summary  # noqa: E402
 from strategy import build_strategy_chart, optimize_ma_pairs  # noqa: E402
+from strategy_custom import build_custom_chart  # noqa: E402
 
 refresh_universe(force=False)
 st.set_page_config(page_title="量化投研系统", page_icon="📈", layout="wide")
@@ -211,11 +212,59 @@ elif page.startswith("📈"):
 # ============================================
 elif page.startswith("📐"):
     st.title("📐 双均线策略引擎")
-    mode=st.radio("模式",["单策略 (25日×500日)","参数优化 (扫描400组)"],horizontal=True)
+    mode=st.radio("模式",["自定义策略 (5×25金叉+MACD+周线)","单策略 (25日×500日)","参数优化 (扫描400组)"],horizontal=True)
     ticker=st.text_input("股票代码",value="600519",max_chars=6,key="stk")
     if ticker and ticker.isdigit() and len(ticker)==6:
         info_q=_q((ticker,));name=info_q[0]["name"] if info_q and info_q[0].get("name") else ""
-        if "单策略" in mode:
+        if "自定义策略" in mode:
+            st.caption("买入：MA5金叉MA25 + MACD日/周/月黄线>0 + 价格>25周线")
+            st.caption("卖出：跌穿MA10减半仓 | 跌穿MA25清仓")
+            if st.button("🔍 运行自定义策略", type="primary", key="run_custom"):
+                with st.spinner("计算日/周/月线 MACD..."):
+                    cfig, cr = build_custom_chart(ticker, name)
+                if cfig and cr:
+                    st.plotly_chart(cfig, use_container_width=True, config={"displaylogo": False})
+
+                    # 绩效
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric("策略收益", f"{cr['total_return']:.2f}%")
+                    c2.metric("买入持有", f"{cr['bh_return']:.2f}%")
+                    c3.metric("最大回撤", f"{cr['max_drawdown']:.2f}%")
+                    c4.metric("胜率", f"{cr['win_rate']:.1f}%")
+                    c5.metric("买入次数", cr['buy_count'])
+
+                    # 当前条件状态
+                    st.divider()
+                    st.subheader("📋 当前买入条件状态")
+                    cond_cols = st.columns(5)
+                    cond_labels = {
+                        "MA5金叉MA25": "MA5↑MA25",
+                        "MACD日线黄线>0": "MACD日>0",
+                        "MACD周线黄线>0": "MACD周>0",
+                        "MACD月线黄线>0": "MACD月>0",
+                        "价格>25周线": "价>25周线",
+                    }
+                    for i, (key, met) in enumerate(cr["conditions"].items()):
+                        with cond_cols[i]:
+                            icon = "✅" if met else "❌"
+                            st.metric(cond_labels.get(key, key), icon)
+
+                    if cr["all_met"]:
+                        st.success(f"🟢 全部买入条件满足！当前仓位: {'满仓' if cr['position']==1 else '半仓' if cr['position']==0.5 else '空仓'}")
+                    else:
+                        unmet = [k for k, v in cr["conditions"].items() if not v]
+                        st.warning(f"🔴 {len(unmet)} 项未满足: {', '.join(unmet)} | 当前仓位: {'满仓' if cr['position']==1 else '半仓' if cr['position']==0.5 else '空仓'}")
+
+                    # 价格位置
+                    cm1, cm2, cm3, cm4 = st.columns(4)
+                    cm1.metric("最新价", f"{cr['latest_price']:.2f}")
+                    cm2.metric("MA10", f"{cr['latest_ma10']:.2f}")
+                    cm3.metric("MA25", f"{cr['latest_ma25']:.2f}")
+                    cm4.metric("MA125(25周)", f"{cr['latest_ma125']:.2f}")
+                else:
+                    st.warning("数据不足，该股票历史数据不够（需要 800+ 交易日）。")
+
+        elif "单策略" in mode:
             if st.button("🔍 运行回测",type="primary"):
                 with st.spinner("加载数据..."):
                     sfig,sr=build_strategy_chart(ticker,name)
