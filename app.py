@@ -36,6 +36,7 @@ from strategy import build_strategy_chart, optimize_ma_pairs  # noqa: E402
 from strategy_custom import build_custom_chart  # noqa: E402
 from fundamental_data import get_single_fundamentals  # noqa: E402
 from industry import classify_batch, get_industry_list  # noqa: E402
+from signals import get_all_signals  # noqa: E402
 
 refresh_universe(force=False)
 st.set_page_config(page_title="量化投研系统", page_icon="📈", layout="wide")
@@ -268,6 +269,44 @@ elif page.startswith("📈"):
                     cols=st.columns(6)
                     for j,(l,v) in enumerate(cm[i:i+6]):
                         with cols[j]:st.markdown(f"<div class='metric-chip'><div class='v'>{v}</div><div class='l'>{l}</div></div>",unsafe_allow_html=True)
+        # 交易信号
+        st.divider();st.subheader("📡 交易信号")
+        if st.button("🔍 分析交易信号", key="sig_btn"):
+            with st.spinner("计算凯里公式 + 多条件信号..."):
+                sigs=get_all_signals(ticker)
+            if 'error' not in sigs:
+                # 凯里公式
+                k=sigs['kelly']
+                st.markdown(f"**🎯 凯里公式仓位建议**")
+                ck1,ck2,ck3=st.columns(3)
+                ck1.metric("全凯里",f"{k.get('kelly_full',0):.1f}%")
+                ck2.metric("半凯里(保守)",f"{k.get('kelly_half',0):.1f}%")
+                ck3.metric("盈亏比",f"{k.get('b_ratio',0):.2f}")
+                st.caption(k.get('interpretation',''))
+
+                st.divider()
+                # 各信号行
+                signals_list=[
+                    ("MA10黏着",sigs['ma10_sticky']),
+                    ("MA25止损",sigs['ma25_stop']),
+                    ("历史高点(前复权)",sigs['history_high']),
+                    ("50%回撤位",sigs['retrace_50']),
+                    ("突破回踩",sigs['double_pullback']),
+                ]
+                for sname,sd in signals_list:
+                    sig_text=sd.get('signal','')
+                    if '🟢' in sig_text: bg='#e8f5e9';border='#4caf50'
+                    elif '🔴' in sig_text: bg='#fce4ec';border='#e53935'
+                    elif '🟡' in sig_text: bg='#fff8e1';border='#ff9800'
+                    else: bg='#f5f5f5';border='#ccc'
+                    st.markdown(f"""<div style='background:{bg};border-left:3px solid {border};padding:8px 12px;margin:3px 0;border-radius:4px'>
+                        <b>{sname}</b>: {sig_text}</div>""",unsafe_allow_html=True)
+
+                st.divider()
+                st.info(f"**综合判断**: {sigs['action']}")
+            else:
+                st.error(sigs['error'])
+
         st.divider();st.subheader("🤖 AI 投研")
         if st.button("▶️ 生成报告",type="primary"):
             _init_rt()
