@@ -201,6 +201,43 @@ if page.startswith("🏠"):
                     <small style='color:#888'>{bname}</small><br>
                     <b style='color:{color};font-size:1.1rem'>{arrow} {bchg:+.2f}%</b></div>""", unsafe_allow_html=True)
 
+    # 触发预警提醒
+    alerts=get_alerts(USER)
+    if alerts:
+        triggered=[]
+        for a in alerts:
+            try:
+                qq=_q((a["ticker"],))
+                if qq and qq[0].get("price",0)>0:
+                    cur=qq[0]["price"]
+                    if (a["direction"]=="above" and cur>=a["price"]) or (a["direction"]=="below" and cur<=a["price"]):
+                        triggered.append(f"{a['ticker']} {'涨破' if a['direction']=='above' else '跌破'} {a['price']:.2f} (现价{cur:.2f})")
+            except: pass
+        if triggered:
+            st.warning("🔔 触发预警: " + " | ".join(triggered))
+
+    # 持仓盈亏总览
+    positions=get_all_positions(USER)
+    if positions:
+        wl=get_watchlist(USER) or list(positions.keys())
+        if wl:
+            try:
+                qs=_q(tuple(wl[:15]))
+                pos_total_cost=0; pos_total_value=0
+                for q in qs:
+                    if q.get("code") in positions and q.get("price",0)>0:
+                        p=positions[q["code"]]
+                        pos_total_cost+=p["cost"]*p["shares"]
+                        pos_total_value+=q["price"]*p["shares"]
+                if pos_total_cost>0:
+                    pos_pnl=pos_total_value-pos_total_cost
+                    pos_pnl_pct=(pos_total_value/pos_total_cost-1)*100
+                    pc1,pc2,pc3=st.columns(3)
+                    pc1.metric("持仓总成本",f"{pos_total_cost:,.0f}元")
+                    pc2.metric("持仓总市值",f"{pos_total_value:,.0f}元")
+                    pc3.metric("持仓总盈亏",f"{pos_pnl:+,.0f}元 ({pos_pnl_pct:+.2f}%)")
+            except: pass
+
     st.divider()
     ca,cb=st.columns([2,1])
     with ca:
