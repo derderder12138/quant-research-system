@@ -23,6 +23,8 @@ from database import (  # noqa: E402
     verify_user, get_summary, get_results, save_result, extract_rating,
     get_watchlist, add_to_watchlist, remove_from_watchlist, get_watchlist_names,
     save_note, get_note, get_all_notes,
+    save_position, get_position, get_all_positions,
+    save_alert, get_alerts, delete_alert,
 )
 from graph_builder import build_graph  # noqa: E402
 from graph_types import StockAgentState  # noqa: E402
@@ -749,9 +751,12 @@ elif page.startswith("⭐"):
             st.caption(f"持仓 **{len(codes)}** 支 | 有效 **{len(valid)}**")
             if valid:
                 notes_map = get_all_notes(USER)
-                rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}","笔记":notes_map.get(q["code"],"")[:30]} for q in valid]
-                st.dataframe(pd.DataFrame(rows).style.map(_cc,subset=["涨跌%"]),hide_index=True,height=400,
-                           column_config={"笔记": st.column_config.TextColumn(width="medium")})
+                pos_map = get_all_positions(USER)
+                rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","成本":f"{pos_map.get(q['code'],{}).get('cost',0):.2f}" if pos_map.get(q['code'],{}).get('cost',0)>0 else "-","盈亏%":f"{(q['price']/pos_map[q['code']]['cost']-1)*100:+.2f}%" if pos_map.get(q['code'],{}).get('cost',0)>0 else "-","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}","笔记":notes_map.get(q["code"],"")[:20]} for q in valid]
+                total_pnl=sum((q['price']-pos_map.get(q['code'],{}).get('cost',0))*pos_map.get(q['code'],{}).get('shares',0) for q in valid if pos_map.get(q['code'],{}).get('cost',0)>0)
+                st.caption(f"持仓 **{len(codes)}** 支 | 有效 **{len(valid)}** | 持仓浮动盈亏: {total_pnl:+,.0f}元" if total_pnl!=0 else f"持仓 **{len(codes)}** 支 | 有效 **{len(valid)}**")
+                st.dataframe(pd.DataFrame(rows).style.map(_cc,subset=["涨跌%","盈亏%"]),hide_index=True,height=400,
+                           column_config={"笔记": st.column_config.TextColumn(width="small"),"成本": st.column_config.TextColumn(width="small"),"盈亏%": st.column_config.TextColumn(width="small")})
         else:st.info("空。去「全市场搜索」添加。")
     with cm:
         batch=st.text_area("批量导入",placeholder="600519,000858")

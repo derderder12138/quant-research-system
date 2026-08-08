@@ -171,6 +171,71 @@ def remove_from_watchlist(username: str, list_name: str, codes: List[str]) -> in
     return removed
 
 
+# ========== 持仓交易记录 ==========
+def save_position(username: str, ticker: str, shares: int, cost: float) -> None:
+    conn = _ensure_tables(username)
+    conn.execute("""CREATE TABLE IF NOT EXISTS positions
+        (ticker TEXT PRIMARY KEY, shares INTEGER DEFAULT 0, cost REAL DEFAULT 0.0,
+         updated_at TEXT DEFAULT (datetime('now','localtime')))""")
+    conn.execute("INSERT OR REPLACE INTO positions (ticker, shares, cost, updated_at) VALUES (?,?,?,datetime('now','localtime'))",
+                 (ticker, shares, cost))
+    conn.commit(); conn.close()
+
+
+def get_position(username: str, ticker: str) -> Dict:
+    path = _db_path(username)
+    if not os.path.exists(path): return {"shares": 0, "cost": 0.0}
+    conn = sqlite3.connect(path)
+    conn.execute("""CREATE TABLE IF NOT EXISTS positions
+        (ticker TEXT PRIMARY KEY, shares INTEGER DEFAULT 0, cost REAL DEFAULT 0.0,
+         updated_at TEXT DEFAULT (datetime('now','localtime')))""")
+    row = conn.execute("SELECT shares, cost FROM positions WHERE ticker=?", (ticker,)).fetchone()
+    conn.close()
+    return {"shares": row[0], "cost": row[1]} if row else {"shares": 0, "cost": 0.0}
+
+
+def get_all_positions(username: str) -> Dict[str, Dict]:
+    path = _db_path(username)
+    if not os.path.exists(path): return {}
+    conn = sqlite3.connect(path)
+    conn.execute("""CREATE TABLE IF NOT EXISTS positions
+        (ticker TEXT PRIMARY KEY, shares INTEGER DEFAULT 0, cost REAL DEFAULT 0.0,
+         updated_at TEXT DEFAULT (datetime('now','localtime')))""")
+    rows = conn.execute("SELECT ticker, shares, cost FROM positions").fetchall()
+    conn.close()
+    return {r[0]: {"shares": r[1], "cost": r[2]} for r in rows}
+
+
+# ========== 价格预警 ==========
+def save_alert(username: str, ticker: str, price: float, direction: str) -> None:
+    conn = _ensure_tables(username)
+    conn.execute("""CREATE TABLE IF NOT EXISTS alerts
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL, price REAL NOT NULL,
+         direction TEXT NOT NULL, active INTEGER DEFAULT 1,
+         created_at TEXT DEFAULT (datetime('now','localtime')))""")
+    conn.execute("INSERT INTO alerts (ticker, price, direction) VALUES (?,?,?)", (ticker, price, direction))
+    conn.commit(); conn.close()
+
+
+def get_alerts(username: str) -> List[Dict]:
+    path = _db_path(username)
+    if not os.path.exists(path): return []
+    conn = sqlite3.connect(path)
+    conn.execute("""CREATE TABLE IF NOT EXISTS alerts
+        (id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL, price REAL NOT NULL,
+         direction TEXT NOT NULL, active INTEGER DEFAULT 1,
+         created_at TEXT DEFAULT (datetime('now','localtime')))""")
+    rows = conn.execute("SELECT ticker, price, direction, active FROM alerts WHERE active=1").fetchall()
+    conn.close()
+    return [{"ticker": r[0], "price": r[1], "direction": r[2], "active": r[3]} for r in rows]
+
+
+def delete_alert(username: str, alert_id: int) -> None:
+    conn = _ensure_tables(username)
+    conn.execute("UPDATE alerts SET active=0 WHERE id=?", (alert_id,))
+    conn.commit(); conn.close()
+
+
 # ========== 股票笔记 ==========
 def save_note(username: str, ticker: str, note: str) -> None:
     conn = _ensure_tables(username)
