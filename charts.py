@@ -48,6 +48,18 @@ def _calc_kdj(df: pd.DataFrame, n: int = 9) -> pd.DataFrame:
     return df
 
 
+def _calc_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """RSI 相对强弱指标。"""
+    delta = df["close"].diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = (-delta).where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1/period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1/period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, 1e-10)
+    df["RSI"] = 100 - (100 / (1 + rs))
+    return df
+
+
 def _calc_boll(df: pd.DataFrame, n: int = 20) -> pd.DataFrame:
     """BOLL 布林带。"""
     df["BOLL_MID"] = df["close"].rolling(n).mean()
@@ -75,14 +87,15 @@ def build_kline_chart(ticker: str, name: str = "", timeframe: str = "半年") ->
     df = _calc_ma(df, [5, 10, 20, 60])
     df = _calc_kdj(df)
     df = _calc_boll(df)
+    df = _calc_rsi(df)
     df = df.dropna(subset=["MA5", "MA10"]).copy()
     df.reset_index(drop=True, inplace=True)
 
     stock_label = f"{ticker} {name}" if name else ticker
 
     fig = make_subplots(
-        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.02,
-        row_heights=[0.5, 0.2, 0.3],
+        rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.02,
+        row_heights=[0.45, 0.12, 0.22, 0.21],
     )
 
     # ---- 面板1: K线 + 布林带 + 均线 ----
@@ -124,6 +137,13 @@ def build_kline_chart(ticker: str, name: str = "", timeframe: str = "半年") ->
     fig.add_hline(y=80, line_dash="dash", line_color="#e83939", line_width=0.5, opacity=0.4, row=3, col=1)
     fig.add_hline(y=20, line_dash="dash", line_color="#1aad19", line_width=0.5, opacity=0.4, row=3, col=1)
 
+    # ---- 面板4: RSI ----
+    fig.add_trace(go.Scatter(x=df["date"], y=df["RSI"], mode="lines",
+        name="RSI(14)", line=dict(color="#9b30ff", width=1.5)), row=4, col=1)
+    fig.add_hline(y=70, line_dash="dash", line_color="#e83939", line_width=0.5, opacity=0.4, row=4, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="#1aad19", line_width=0.5, opacity=0.4, row=4, col=1)
+    fig.add_hline(y=50, line_dash="solid", line_color="#666", line_width=0.3, row=4, col=1)
+
     # ---- 全局布局 ----
     fig.update_layout(
         template="plotly_dark", height=750, hovermode="x unified",
@@ -137,6 +157,7 @@ def build_kline_chart(ticker: str, name: str = "", timeframe: str = "半年") ->
     fig.update_yaxes(title_text=stock_label, row=1, col=1, **grid, tickformat=".2f")
     fig.update_yaxes(title_text="成交量", row=2, col=1, **grid, showticklabels=False)
     fig.update_yaxes(title_text="KDJ", row=3, col=1, **grid)
+    fig.update_yaxes(title_text="RSI", row=4, col=1, **grid)
     fig.update_xaxes(rangeslider_visible=False, row=1, col=1)
 
     return fig, df

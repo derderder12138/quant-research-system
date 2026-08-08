@@ -309,7 +309,56 @@ def check_double_pullback(df: pd.DataFrame, lookback: int = 120) -> Dict:
 
 
 # ============================================
-# 7. 综合信号汇总
+# 7. 布林带缩口检测
+# ============================================
+def check_bollinger_squeeze(df: pd.DataFrame, period: int = 20, threshold: float = 0.05) -> Dict:
+    """检测布林带缩口（带宽压缩→即将变盘）。带宽 = (上轨-下轨)/中轨。"""
+    if df.empty or len(df) < period + 10:
+        return {"squeeze": False, "signal": "数据不足"}
+    df = df.copy()
+    df["B_MID"] = df["close"].rolling(period).mean()
+    df["B_STD"] = df["close"].rolling(period).std()
+    df["B_WIDTH"] = (2 * df["B_STD"]) / df["B_MID"]  # 带宽百分比
+    latest = df["B_WIDTH"].iloc[-1]
+    avg_3m = df["B_WIDTH"].tail(60).mean() if len(df) >= 60 else df["B_WIDTH"].mean()
+    is_squeeze = latest < avg_3m * 0.7  # 当前带宽低于3月均值的70%
+
+    if is_squeeze:
+        signal = f"🟡 布林带缩口中（带宽{latest*100:.2f}%，仅为3月均值{avg_3m*100:.2f}%的{latest/avg_3m*100:.0f}%）→ 变盘在即，密切关注方向。"
+    else:
+        signal = f"布林带宽度正常（{latest*100:.2f}%），无明显缩口信号。"
+
+    return {"squeeze": is_squeeze, "bandwidth": round(float(latest)*100, 2), "signal": signal}
+
+
+# ============================================
+# 8. 量价背离检测
+# ============================================
+def check_volume_divergence(df: pd.DataFrame, lookback: int = 20) -> Dict:
+    """检测量价背离：价格上涨但成交量萎缩→上涨乏力。"""
+    if df.empty or len(df) < lookback + 5:
+        return {"divergence": False, "signal": "数据不足"}
+    recent = df.tail(lookback)
+    price_up = recent["close"].iloc[-1] > recent["close"].iloc[0]
+    vol_first_half = recent["volume"].iloc[:lookback//2].mean()
+    vol_second_half = recent["volume"].iloc[lookback//2:].mean()
+    vol_declining = vol_second_half < vol_first_half * 0.8
+
+    if price_up and vol_declining:
+        signal = "🔴 量价背离：近10日价格上涨但成交量萎缩20%+ → 上涨动力不足，警惕回调。"
+        divergence = "bearish"
+    elif not price_up and vol_declining:
+        signal = "🟢 缩量下跌：量能衰竭，抛压减轻 → 可能接近底部。"
+        divergence = "bullish"
+    else:
+        signal = "量价关系正常，未检测到明显背离。"
+        divergence = "none"
+
+    return {"divergence": divergence, "signal": signal}
+
+
+# ============================================
+# 9. 综合信号汇总
 # ============================================
 def get_all_signals(ticker: str) -> Dict:
     """
@@ -326,6 +375,8 @@ def get_all_signals(ticker: str) -> Dict:
     hist_high = check_history_high(df)
     retrace = check_50pct_retracement(df)
     pullback = check_double_pullback(df)
+    boll_sqz = check_bollinger_squeeze(df)
+    vol_div = check_volume_divergence(df)
 
     # 从 DataFram 计算凯里所需数据
     df_valid = df.copy()
@@ -365,6 +416,9 @@ def get_all_signals(ticker: str) -> Dict:
     if ma25.get("below_ma25"): sell_signals += 2  # 跌破25=清仓
     if hist_high.get("pct_from_high", -100) >= -1: sell_signals += 1  # 近历史高点
     if not retrace.get("above_mid", True): sell_signals += 1  # 跌破50%回撤
+    if boll_sqz.get("squeeze"): sell_signals += 0  # 缩口=关注但不加分（方向不明）
+    if vol_div.get("divergence") == "bearish": sell_signals += 2  # 量价背离=强卖出
+    if vol_div.get("divergence") == "bullish": buy_signals += 1  # 缩量跌=潜在买入
 
     if sell_signals >= 3:
         action = "🔴 卖出信号强烈，建议减仓或清仓。"
@@ -383,6 +437,8 @@ def get_all_signals(ticker: str) -> Dict:
         "history_high": hist_high,
         "retrace_50": retrace,
         "double_pullback": pullback,
+        "bollinger_squeeze": boll_sqz,
+        "volume_divergence": vol_div,
         "trade_count": len(trades),
         "action": action,
         "buy_score": buy_signals,

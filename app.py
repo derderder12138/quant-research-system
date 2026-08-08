@@ -334,6 +334,8 @@ elif page.startswith("📈"):
                     ("历史高点(前复权)",sigs['history_high']),
                     ("50%回撤位",sigs['retrace_50']),
                     ("突破回踩",sigs['double_pullback']),
+                    ("布林缩口",sigs['bollinger_squeeze']),
+                    ("量价关系",sigs['volume_divergence']),
                 ]
                 for sname,sd in signals_list:
                     sig_text=sd.get('signal','')
