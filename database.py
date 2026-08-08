@@ -83,7 +83,7 @@ def _db_path(username: str) -> str:
     return os.path.join(_get_db_dir(), f"user_{safe}.db")
 
 
-def _ensure_tables(username: str) -> sqlite3.Connection:
+def _ensure_tables(username: str):  # -> sqlite3.Connection
     path = _db_path(username)
     conn = _connect(path)
     conn.execute("""CREATE TABLE IF NOT EXISTS analysis_results (
