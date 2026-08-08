@@ -1,15 +1,57 @@
 """
-SQLite 持久化模块 — 多用户支持。
-每用户独立存储：分析记录、持仓、密码哈希。
+数据库持久化模块 — 多用户支持 · 本地 SQLite + 云端 SQLite Cloud 自动切换。
+部署到 Streamlit Cloud 时，在 Secrets 中设置 SQLITE_CLOUD_URL 即可自动使用云数据库。
 """
 
-import os, sqlite3, hashlib, re
-from typing import Optional, List, Dict, Any
+import os, hashlib, re
+from typing import Optional, List, Dict, Any, Union
+
+# 尝试导入 SQLite Cloud SDK
+try:
+    import sqlitecloud as _sqlitecloud
+    _HAS_CLOUD = True
+except ImportError:
+    _HAS_CLOUD = False
+
+# 标准库 sqlite3 始终可用
+import sqlite3 as _sqlite3
 
 _RATING_PATTERN = re.compile(r"\[(积极建仓|谨慎持有|观望等待|减仓回避)\]")
 
 # 数据目录：优先用项目 data/，不可用时回退 /tmp
 _DB_DIR = None
+_CLOUD_URL = None
+
+
+def _get_cloud_url() -> Optional[str]:
+    """获取 SQLite Cloud 连接字符串（从环境变量或 Streamlit Secrets）。"""
+    global _CLOUD_URL
+    if _CLOUD_URL is not None:
+        return _CLOUD_URL if _CLOUD_URL else None
+    # 先查环境变量
+    url = os.environ.get("SQLITE_CLOUD_URL", "")
+    # 再查 Streamlit Secrets
+    if not url:
+        try:
+            import streamlit as st
+            url = st.secrets.get("SQLITE_CLOUD_URL", "")
+        except Exception:
+            pass
+    _CLOUD_URL = url
+    return url if url else None
+
+
+def _is_cloud() -> bool:
+    return _HAS_CLOUD and bool(_get_cloud_url())
+
+
+def _connect(path: str = ":memory:") -> Any:
+    """创建数据库连接。云端模式忽略 path，使用 SQLite Cloud。"""
+    if _is_cloud():
+        conn = _sqlitecloud.connect(_get_cloud_url())
+        conn.execute("USE DATABASE quant_system")
+        return conn
+    return _sqlite3.connect(path)
 
 
 def _get_db_dir() -> str:
@@ -43,7 +85,7 @@ def _db_path(username: str) -> str:
 
 def _ensure_tables(username: str) -> sqlite3.Connection:
     path = _db_path(username)
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     conn.execute("""CREATE TABLE IF NOT EXISTS analysis_results (
         id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL,
         fetch_success INTEGER DEFAULT 0, error_message TEXT DEFAULT '',
@@ -101,9 +143,9 @@ def save_result(username: str, result: Dict[str, Any]) -> int:
 
 def get_results(username: str, ticker: Optional[str] = None, limit: int = 50) -> List[Dict]:
     path = _db_path(username)
-    if not os.path.exists(path):
+    if not _is_cloud() and not os.path.exists(path):
         return []
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     if ticker:
         rows = conn.execute("SELECT * FROM analysis_results WHERE ticker=? ORDER BY created_at DESC LIMIT ?", (ticker, limit)).fetchall()
     else:
@@ -122,9 +164,9 @@ def get_results(username: str, ticker: Optional[str] = None, limit: int = 50) ->
 
 def get_summary(username: str) -> Dict:
     path = _db_path(username)
-    if not os.path.exists(path):
+    if not _is_cloud() and not os.path.exists(path):
         return {"total": 0, "success": 0, "failed": 0, "ratings": {}}
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     total = conn.execute("SELECT COUNT(*) FROM analysis_results").fetchone()[0]
     success = conn.execute("SELECT COUNT(*) FROM analysis_results WHERE fetch_success=1").fetchone()[0]
     rows = conn.execute("SELECT rating, COUNT(*) FROM analysis_results WHERE rating!='' GROUP BY rating ORDER BY COUNT(*) DESC").fetchall()
@@ -140,9 +182,9 @@ def extract_rating(final_report: str) -> Optional[str]:
 # ========== 用户持仓 ==========
 def get_watchlist(username: str, list_name: str = "默认池") -> List[str]:
     path = _db_path(username)
-    if not os.path.exists(path):
+    if not _is_cloud() and not os.path.exists(path):
         return []
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     rows = conn.execute("SELECT code FROM watchlists WHERE name=? ORDER BY added_at", (list_name,)).fetchall()
     conn.close()
     return [r[0] for r in rows]
@@ -185,7 +227,7 @@ def save_position(username: str, ticker: str, shares: int, cost: float) -> None:
 def get_position(username: str, ticker: str) -> Dict:
     path = _db_path(username)
     if not os.path.exists(path): return {"shares": 0, "cost": 0.0}
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     conn.execute("""CREATE TABLE IF NOT EXISTS positions
         (ticker TEXT PRIMARY KEY, shares INTEGER DEFAULT 0, cost REAL DEFAULT 0.0,
          updated_at TEXT DEFAULT (datetime('now','localtime')))""")
@@ -197,7 +239,7 @@ def get_position(username: str, ticker: str) -> Dict:
 def get_all_positions(username: str) -> Dict[str, Dict]:
     path = _db_path(username)
     if not os.path.exists(path): return {}
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     conn.execute("""CREATE TABLE IF NOT EXISTS positions
         (ticker TEXT PRIMARY KEY, shares INTEGER DEFAULT 0, cost REAL DEFAULT 0.0,
          updated_at TEXT DEFAULT (datetime('now','localtime')))""")
@@ -220,7 +262,7 @@ def save_alert(username: str, ticker: str, price: float, direction: str) -> None
 def get_alerts(username: str) -> List[Dict]:
     path = _db_path(username)
     if not os.path.exists(path): return []
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     conn.execute("""CREATE TABLE IF NOT EXISTS alerts
         (id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL, price REAL NOT NULL,
          direction TEXT NOT NULL, active INTEGER DEFAULT 1,
@@ -249,7 +291,7 @@ def save_note(username: str, ticker: str, note: str) -> None:
 def get_note(username: str, ticker: str) -> str:
     path = _db_path(username)
     if not os.path.exists(path): return ""
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     conn.execute("""CREATE TABLE IF NOT EXISTS stock_notes
         (ticker TEXT PRIMARY KEY, note TEXT DEFAULT '', updated_at TEXT DEFAULT (datetime('now','localtime')))""")
     row = conn.execute("SELECT note FROM stock_notes WHERE ticker=?", (ticker,)).fetchone()
@@ -260,7 +302,7 @@ def get_note(username: str, ticker: str) -> str:
 def get_all_notes(username: str) -> Dict[str, str]:
     path = _db_path(username)
     if not os.path.exists(path): return {}
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     conn.execute("""CREATE TABLE IF NOT EXISTS stock_notes
         (ticker TEXT PRIMARY KEY, note TEXT DEFAULT '', updated_at TEXT DEFAULT (datetime('now','localtime')))""")
     rows = conn.execute("SELECT ticker, note FROM stock_notes").fetchall()
@@ -270,9 +312,9 @@ def get_all_notes(username: str) -> Dict[str, str]:
 
 def get_watchlist_names(username: str) -> List[str]:
     path = _db_path(username)
-    if not os.path.exists(path):
+    if not _is_cloud() and not os.path.exists(path):
         return []
-    conn = sqlite3.connect(path)
+    conn = _connect(path)
     rows = conn.execute("SELECT DISTINCT name FROM watchlists ORDER BY name").fetchall()
     conn.close()
     return [r[0] for r in rows]
