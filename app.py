@@ -38,7 +38,10 @@ from fundamental_data import get_single_fundamentals  # noqa: E402
 from industry import classify_batch, get_industry_list  # noqa: E402
 from signals import get_all_signals  # noqa: E402
 
-refresh_universe(force=False)
+try:
+    refresh_universe(force=False)
+except Exception:
+    pass  # 云端网络受限时降级，依赖已有缓存或跳过
 st.set_page_config(page_title="量化投研系统", page_icon="📈", layout="wide")
 
 st.markdown("""<style>

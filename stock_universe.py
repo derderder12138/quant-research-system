@@ -75,7 +75,12 @@ def refresh_universe(force: bool = False) -> int:
     _r.Session.__init__ = _p
 
     import akshare as ak
-    df = ak.stock_info_a_code_name()
+    try:
+        df = ak.stock_info_a_code_name()
+    except Exception as e:
+        print(f"[stock_universe] 获取代码表失败: {e}")
+        conn.close()
+        return 0
 
     conn.execute("DELETE FROM stock_list")
     for _, row in df.iterrows():
