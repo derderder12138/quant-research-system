@@ -336,6 +336,7 @@ elif page.startswith("📈"):
                     ("突破回踩",sigs['double_pullback']),
                     ("布林缩口",sigs['bollinger_squeeze']),
                     ("量价关系",sigs['volume_divergence']),
+                    ("跳空缺口",sigs['gap_break']),
                 ]
                 for sname,sd in signals_list:
                     sig_text=sd.get('signal','')

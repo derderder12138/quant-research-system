@@ -334,6 +334,67 @@ def check_bollinger_squeeze(df: pd.DataFrame, period: int = 20, threshold: float
 # ============================================
 # 8. 量价背离检测
 # ============================================
+def check_gap_break(df: pd.DataFrame, hold_days: int = 3) -> Dict:
+    """
+    跳空缺口不破买入：
+    1. 检测向上跳空缺口（今日最低 > 昨日最高）
+    2. 缺口在 hold_days 天内未被回补 → 强支撑确认 → 买入信号
+
+    Returns:
+        gaps: 最近 60 天内检测到的所有缺口
+        active_buy: 是否有符合条件的未补跳空买入信号
+        latest_gap: 最近缺口信息
+        signal: 操作建议
+    """
+    if df.empty or len(df) < 60:
+        return {"gaps_found": 0, "signal": "数据不足"}
+
+    df = df.copy()
+    df["gap_up"] = df["low"] > df["high"].shift(1)   # 向上跳空
+    df["gap_down"] = df["high"] < df["low"].shift(1)  # 向下跳空
+    df["gap_high"] = df["high"].shift(1)  # 缺口上沿（昨天最高）
+    df["gap_filled"] = False
+
+    # 找最近 60 天内的向上跳空缺口
+    gap_up_rows = df.tail(60)
+    gap_up_rows = gap_up_rows[gap_up_rows["gap_up"]]
+
+    active_gaps = []
+    for idx in gap_up_rows.index:
+        gap_date = df.loc[idx, "date"]
+        gap_upper = df.loc[idx, "high"]  # 跳空日的最高点
+        gap_lower = df.loc[idx, "low"]   # 跳空日的最低点
+        yesterday_high = df["high"].shift(1).loc[idx] if idx > 0 else gap_upper
+
+        # 检查跳空后是否回补（价格跌回缺口下方 = 回补）
+        after_gap = df.loc[idx+1:]
+        filled = any(after_gap["low"] <= yesterday_high) if len(after_gap) > 0 else False
+        days_since = len(after_gap)
+
+        if not filled and days_since >= hold_days:
+            active_gaps.append({
+                "date": str(gap_date.date()),
+                "gap_price": round(float(yesterday_high), 2),
+                "current_price": round(float(df["close"].iloc[-1]), 2),
+                "days_held": days_since,
+            })
+
+    if active_gaps:
+        latest = active_gaps[-1]
+        signal = f"🟢 跳空缺口不破！{latest['date']} 形成缺口（支撑位 {latest['gap_price']:.2f}），已守住 {latest['days_held']} 天未回补 → 强支撑确认，可考虑买入。止损设在缺口下沿。"
+    elif len(gap_up_rows) > 0:
+        # 有跳空但已被回补
+        signal = "近期有跳空缺口但已被回补，暂不符合缺口不破买入条件。"
+    else:
+        signal = "近 60 天内无向上跳空缺口，暂不适用此策略。"
+
+    return {
+        "gaps_found": len(active_gaps),
+        "active_gaps": active_gaps,
+        "signal": signal,
+    }
+
+
 def check_volume_divergence(df: pd.DataFrame, lookback: int = 20) -> Dict:
     """检测量价背离：价格上涨但成交量萎缩→上涨乏力。"""
     if df.empty or len(df) < lookback + 5:
@@ -377,6 +438,7 @@ def get_all_signals(ticker: str) -> Dict:
     pullback = check_double_pullback(df)
     boll_sqz = check_bollinger_squeeze(df)
     vol_div = check_volume_divergence(df)
+    gap_break = check_gap_break(df)
 
     # 从 DataFram 计算凯里所需数据
     df_valid = df.copy()
@@ -419,6 +481,7 @@ def get_all_signals(ticker: str) -> Dict:
     if boll_sqz.get("squeeze"): sell_signals += 0  # 缩口=关注但不加分（方向不明）
     if vol_div.get("divergence") == "bearish": sell_signals += 2  # 量价背离=强卖出
     if vol_div.get("divergence") == "bullish": buy_signals += 1  # 缩量跌=潜在买入
+    if gap_break.get("gaps_found", 0) > 0: buy_signals += 3  # 跳空不破=强买入
 
     if sell_signals >= 3:
         action = "🔴 卖出信号强烈，建议减仓或清仓。"
@@ -439,6 +502,7 @@ def get_all_signals(ticker: str) -> Dict:
         "double_pullback": pullback,
         "bollinger_squeeze": boll_sqz,
         "volume_divergence": vol_div,
+        "gap_break": gap_break,
         "trade_count": len(trades),
         "action": action,
         "buy_score": buy_signals,
