@@ -101,7 +101,7 @@ def _idx(): return get_index_quotes()
 def _active(n): return get_top_active(n)
 def _cc(v):
     try: x=float(str(v).replace("%","").replace("+",""));return "color:#e53935;font-weight:700" if x>0 else "color:#43a047;font-weight:700" if x<0 else ""
-    except: return ""
+    except Exception: return ""
 def _init_rt():
     if "rt" not in st.session_state:
         init_llm(model=os.getenv("LLM_MODEL","deepseek-chat"),api_key=os.getenv("OPENAI_API_KEY",""),api_base=os.getenv("OPENAI_API_BASE","https://api.deepseek.com/v1"))
@@ -213,7 +213,7 @@ if page.startswith("🏠"):
                     cur=qq[0]["price"]
                     if (a["direction"]=="above" and cur>=a["price"]) or (a["direction"]=="below" and cur<=a["price"]):
                         triggered.append(f"{a['ticker']} {'涨破' if a['direction']=='above' else '跌破'} {a['price']:.2f} (现价{cur:.2f})")
-            except: pass
+            except Exception: pass
         if triggered:
             st.warning("🔔 触发预警: " + " | ".join(triggered))
 
@@ -237,7 +237,7 @@ if page.startswith("🏠"):
                     pc1.metric("持仓总成本",f"{pos_total_cost:,.0f}元")
                     pc2.metric("持仓总市值",f"{pos_total_value:,.0f}元")
                     pc3.metric("持仓总盈亏",f"{pos_pnl:+,.0f}元 ({pos_pnl_pct:+.2f}%)")
-            except: pass
+            except Exception: pass
 
     st.divider()
     ca,cb=st.columns([2,1])

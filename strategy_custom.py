@@ -26,7 +26,7 @@ def _fetch_history(ticker: str, days: int) -> pd.DataFrame:
         df=ak.stock_zh_a_hist_tx(symbol=prefix+ticker,start_date=start,end_date=end,adjust="qfq")
         if df.empty:return pd.DataFrame()
         df["date"]=pd.to_datetime(df["date"]);return df.sort_values("date").reset_index(drop=True)
-    except:return pd.DataFrame()
+    except Exception:return pd.DataFrame()
 
 
 def _calc_macd(df: pd.DataFrame, col: str = "close") -> pd.DataFrame:
