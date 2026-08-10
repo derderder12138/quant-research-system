@@ -245,7 +245,7 @@ if page.startswith("🏠"):
         st.subheader("🔥 成交量活跃榜 Top20")
         active=_active(30)
         if active:
-            rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}"} for q in active[:20]]
+            rows=[{"代码":str(q["code"]).zfill(6),"名称":q["name"],"现价":f"{q['price']:.2f}","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}"} for q in active[:20]]
             st.dataframe(pd.DataFrame(rows).style.map(_cc,subset=["涨跌%"]),hide_index=True,height=680)
     with cb:
         st.subheader("📋 我的持仓")
@@ -560,16 +560,16 @@ elif page.startswith("🎯"):
 
                 if gold:
                     st.subheader("🥇 优质标的（评分≥75）")
-                    gdf = pd.DataFrame([{"代码":r["code"],"名称":r.get("name",""),"评分":r["score"],"PE":f"{r['pe']:.1f}","市值":f"{r['market_cap']:,.0f}亿","ROE%":f"{r.get('roe',0):.1f}","近1年%":f"{r['y1_change']:+.1f}","今日%":f"{r['change_pct']:+.2f}"} for r in gold])
+                    gdf = pd.DataFrame([{"代码":str(r["code"]).zfill(6),"名称":r.get("name",""),"评分":r["score"],"PE":f"{r['pe']:.1f}","市值":f"{r['market_cap']:,.0f}亿","ROE%":f"{r.get('roe',0):.1f}","近1年%":f"{r['y1_change']:+.1f}","今日%":f"{r['change_pct']:+.2f}"} for r in gold])
                     st.dataframe(gdf, hide_index=True, height=250)
 
                 if silver:
                     st.subheader("🥈 良好标的（评分50-74）")
-                    sdf = pd.DataFrame([{"代码":r["code"],"名称":r.get("name",""),"评分":r["score"],"PE":f"{r['pe']:.1f}"} for r in silver])
+                    sdf = pd.DataFrame([{"代码":str(r["code"]).zfill(6),"名称":r.get("name",""),"评分":r["score"],"PE":f"{r['pe']:.1f}"} for r in silver])
                     st.dataframe(sdf, hide_index=True, height=200)
 
                 # 批量操作
-                sel = st.multiselect("选择加入持仓", [r["code"] for r in results[:100]], key="scr2")
+                sel = st.multiselect("选择加入持仓", [str(r["code"]).zfill(6) for r in results[:100]], key="scr2")
                 if st.button(f"📥 加入 ({len(sel)}支)", disabled=not sel):
                     add_to_watchlist(USER, "默认池", sel)
                     st.toast(f"已添加 {len(sel)} 支")
@@ -825,7 +825,7 @@ elif page.startswith("⭐"):
             if valid:
                 notes_map = get_all_notes(USER)
                 pos_map = get_all_positions(USER)
-                rows=[{"代码":q["code"],"名称":q["name"],"现价":f"{q['price']:.2f}","成本":f"{pos_map.get(q['code'],{}).get('cost',0):.2f}" if pos_map.get(q['code'],{}).get('cost',0)>0 else "-","盈亏%":f"{(q['price']/pos_map[q['code']]['cost']-1)*100:+.2f}%" if pos_map.get(q['code'],{}).get('cost',0)>0 else "-","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}","笔记":notes_map.get(q["code"],"")[:20]} for q in valid]
+                rows=[{"代码":str(q["code"]).zfill(6),"名称":q["name"],"现价":f"{q['price']:.2f}","成本":f"{pos_map.get(q['code'],{}).get('cost',0):.2f}" if pos_map.get(q['code'],{}).get('cost',0)>0 else "-","盈亏%":f"{(q['price']/pos_map[q['code']]['cost']-1)*100:+.2f}%" if pos_map.get(q['code'],{}).get('cost',0)>0 else "-","涨跌%":f"{q['change_pct']:+.2f}%","量(手)":f"{q.get('volume',0)/100:,.0f}","笔记":notes_map.get(q["code"],"")[:20]} for q in valid]
                 total_pnl=sum((q['price']-pos_map.get(q['code'],{}).get('cost',0))*pos_map.get(q['code'],{}).get('shares',0) for q in valid if pos_map.get(q['code'],{}).get('cost',0)>0)
                 st.caption(f"持仓 **{len(codes)}** 支 | 有效 **{len(valid)}** | 持仓浮动盈亏: {total_pnl:+,.0f}元" if total_pnl!=0 else f"持仓 **{len(codes)}** 支 | 有效 **{len(valid)}**")
                 st.dataframe(pd.DataFrame(rows).style.map(_cc,subset=["涨跌%","盈亏%"]),hide_index=True,height=400,
