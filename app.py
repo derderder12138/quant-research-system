@@ -872,8 +872,9 @@ elif page.startswith("💸"):
                         if r["success"]: st.toast(f'卖出 {ticker_in} {shares_in}股 @ {cur_price:.2f}')
                         else: st.error(r["error"])
 
-        if st.button("🔄 重置账户"):
-            conn = __import__('database')._ensure_tables(USER)
+        if st.button("🔄 重置账户（回到10万初始资金）"):
+            from database import _ensure_tables as _et
+            conn = _et(USER)
             conn.execute("DELETE FROM virtual_portfolio")
             conn.execute("DELETE FROM virtual_transactions")
             conn.execute("UPDATE virtual_cash SET cash=100000 WHERE id=1")
