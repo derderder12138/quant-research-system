@@ -468,7 +468,7 @@ elif page.startswith("🎯"):
     col1, col2, col3 = st.columns(3)
     with col1:
         pe_max = st.number_input("PE(动)上限", value=80, min_value=1, max_value=500, step=5, help="市盈率越低越便宜")
-        trend_filter = st.selectbox("趋势", ["全部","上升(价>MA20)","下降(价<MA20)"], help="价格在20日均线上方=上升趋势")
+        trend_filter = st.selectbox("趋势", ["全部","上升(价>MA20)","下降(价<MA20)","策略验证通过"], help="策略验证通过=MA25×MA500回测超额收益>0")
     with col2:
         cap_min = st.number_input("市值下限(亿)", value=50, min_value=0, max_value=10000, step=10)
         ind_filter = st.selectbox("行业", ["全部"] + get_industry_list(), help="聚焦特定行业赛道")
@@ -515,7 +515,16 @@ elif page.startswith("🎯"):
                     from industry import classify_stock
                     if classify_stock(code) != ind_filter:
                         continue
-                if trend_filter == "上升(价>MA20)":
+                if trend_filter == "策略验证通过":
+                    try:
+                        from strategy import _backtest_ma_pair
+                        td = _fetch_history(code, 800)
+                        if td is None or len(td) < 100: continue
+                        td["date"]=pd.to_datetime(td["date"]);td=td.sort_values("date").reset_index(drop=True)
+                        sr=_backtest_ma_pair(td,25,500)
+                        if sr is None or sr.get("excess",0) <= 0: continue
+                    except: continue
+                elif trend_filter == "上升(价>MA20)":
                     try:
                         from charts import _fetch_history
                         td = _fetch_history(code, 60)
@@ -570,10 +579,58 @@ elif page.startswith("🎯"):
 
                 # 批量操作
                 sel = st.multiselect("选择加入持仓", [str(r["code"]).zfill(6) for r in results[:100]], key="scr2")
-                if st.button(f"📥 加入 ({len(sel)}支)", disabled=not sel):
+                if st.button(f"📥 加入持仓 ({len(sel)}支)", disabled=not sel):
                     add_to_watchlist(USER, "默认池", sel)
                     st.toast(f"已添加 {len(sel)} 支")
                     st.rerun()
+
+                # 对筛选结果跑策略回测
+                st.divider()
+                st.subheader("📐 策略验证")
+                st.caption("对筛选出的股票跑策略回测，验证是否经得起历史考验")
+                strategy_tickers = [str(r["code"]).zfill(6) for r in results[:20]]
+                if st.button("🚀 对TOP20跑策略回测", type="primary", use_container_width=True):
+                    _init_rt()
+                    strat_results = []
+                    pbar = st.progress(0)
+                    for idx, t in enumerate(strategy_tickers):
+                        pbar.progress((idx)/len(strategy_tickers), text=f"回测: {t}")
+                        try:
+                            from strategy import _backtest_ma_pair
+                            import akshare as ak, datetime, requests as _r
+                            _o=_r.Session.__init__
+                            def _p(s,*a,**k):_o(s,*a,**k);s.trust_env=False
+                            _r.Session.__init__=_p
+                            prefix="sh" if t.startswith(("60","68")) else "sz"
+                            end=datetime.datetime.now().strftime("%Y%m%d")
+                            start=(datetime.datetime.now()-datetime.timedelta(days=800)).strftime("%Y%m%d")
+                            df=ak.stock_zh_a_hist_tx(symbol=prefix+t,start_date=start,end_date=end,adjust="qfq")
+                            if not df.empty and len(df)>100:
+                                df["date"]=pd.to_datetime(df["date"]);df=df.sort_values("date").reset_index(drop=True)
+                                sr=_backtest_ma_pair(df,25,500)
+                                if sr:
+                                    sr["ticker"]=t
+                                    strat_results.append(sr)
+                        except Exception:
+                            pass
+                    pbar.progress(1.0, text="完成")
+
+                    if strat_results:
+                        # 按夏普排序
+                        strat_results.sort(key=lambda x:-x.get("sharpe",-999))
+                        st.subheader("📊 策略回测排名 (MA25×MA500)")
+                        sr_df=pd.DataFrame([{
+                            "排名":i+1,"代码":r["ticker"],"策略收益%":f"{r['total_return']:.1f}",
+                            "买入持有%":f"{r['bh_return']:.1f}","超额%":f"{r['excess']:.1f}",
+                            "夏普":f"{r['sharpe']:.2f}","胜率%":f"{r['win_rate']:.0f}",
+                            "最新信号":r.get("latest_signal","-")
+                        } for i,r in enumerate(strat_results)])
+                        st.dataframe(sr_df,hide_index=True,height=350)
+
+                        best=strat_results[0]
+                        st.success(f"🏆 策略验证最佳: **{best['ticker']}** | 夏普{best['sharpe']:.2f} | 超额{best['excess']:.1f}%")
+                    else:
+                        st.warning("所选股票数据不足，无法回测。")
             else:
                 st.info("无匹配。放宽条件试试。")
 
