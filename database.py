@@ -272,6 +272,97 @@ def get_alerts(username: str) -> List[Dict]:
     return [{"ticker": r[0], "price": r[1], "direction": r[2], "active": r[3]} for r in rows]
 
 
+# ========== 模拟交易 ==========
+def init_virtual_account(username: str, initial_cash: float = 100000) -> None:
+    conn = _ensure_tables(username)
+    conn.execute("""CREATE TABLE IF NOT EXISTS virtual_portfolio (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL,
+        shares INTEGER DEFAULT 0, avg_cost REAL DEFAULT 0.0,
+        updated_at TEXT DEFAULT (datetime('now','localtime')))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS virtual_transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL,
+        action TEXT NOT NULL, shares INTEGER NOT NULL, price REAL NOT NULL,
+        amount REAL NOT NULL, cash_after REAL NOT NULL,
+        created_at TEXT DEFAULT (datetime('now','localtime')))""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS virtual_cash (
+        id INTEGER PRIMARY KEY CHECK (id=1), cash REAL DEFAULT 100000)""")
+    if not conn.execute("SELECT 1 FROM virtual_cash WHERE id=1").fetchone():
+        conn.execute("INSERT INTO virtual_cash (id,cash) VALUES (1,?)", (initial_cash,))
+        conn.execute("INSERT INTO virtual_transactions (ticker,action,shares,price,amount,cash_after) VALUES (?,?,?,?,?,?)",
+                     ("CASH","init",0,0,initial_cash,initial_cash))
+    conn.commit(); conn.close()
+
+
+def get_virtual_cash(username: str) -> float:
+    path = _db_path(username)
+    if not os.path.exists(path): return 0.0
+    conn = _connect(path)
+    row = conn.execute("SELECT cash FROM virtual_cash WHERE id=1").fetchone()
+    conn.close()
+    return row[0] if row else 0.0
+
+
+def get_virtual_holdings(username: str) -> List[Dict]:
+    path = _db_path(username)
+    if not os.path.exists(path): return []
+    conn = _connect(path)
+    rows = conn.execute("SELECT ticker, shares, avg_cost FROM virtual_portfolio WHERE shares>0").fetchall()
+    conn.close()
+    return [{"ticker": r[0], "shares": r[1], "avg_cost": r[2]} for r in rows]
+
+
+def get_virtual_transactions(username: str, limit: int = 50) -> List[Dict]:
+    path = _db_path(username)
+    if not os.path.exists(path): return []
+    conn = _connect(path)
+    rows = conn.execute("SELECT * FROM virtual_transactions ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+    cols = ["id","ticker","action","shares","price","amount","cash_after","created_at"]
+    conn.close()
+    return [{cols[i]: row[i] if i < len(row) else None for i in range(len(cols))} for row in rows]
+
+
+def virtual_trade(username: str, ticker: str, action: str, shares: int, price: float) -> Dict:
+    """执行模拟交易。action: buy/sell。返回结果 dict。"""
+    conn = _ensure_tables(username)
+    cash = conn.execute("SELECT cash FROM virtual_cash WHERE id=1").fetchone()
+    if not cash:
+        conn.close()
+        return {"success": False, "error": "账户未初始化"}
+    cash = cash[0]
+    amount = price * shares
+
+    if action == "buy":
+        if amount > cash:
+            conn.close()
+            return {"success": False, "error": f"现金不足（需要 {amount:,.0f}，可用 {cash:,.0f}）"}
+        cash -= amount
+        # 更新持仓
+        existing = conn.execute("SELECT shares, avg_cost FROM virtual_portfolio WHERE ticker=?", (ticker,)).fetchone()
+        if existing:
+            new_shares = existing[0] + shares
+            new_cost = (existing[0] * existing[1] + amount) / new_shares
+            conn.execute("UPDATE virtual_portfolio SET shares=?, avg_cost=?, updated_at=datetime('now','localtime') WHERE ticker=?", (new_shares, new_cost, ticker))
+        else:
+            conn.execute("INSERT INTO virtual_portfolio (ticker,shares,avg_cost) VALUES (?,?,?)", (ticker, shares, price))
+    else:  # sell
+        existing = conn.execute("SELECT shares FROM virtual_portfolio WHERE ticker=?", (ticker,)).fetchone()
+        if not existing or existing[0] < shares:
+            conn.close()
+            return {"success": False, "error": f"持仓不足（需要 {shares} 股，持有 {existing[0] if existing else 0} 股）"}
+        cash += amount
+        new_shares = existing[0] - shares
+        if new_shares <= 0:
+            conn.execute("DELETE FROM virtual_portfolio WHERE ticker=?", (ticker,))
+        else:
+            conn.execute("UPDATE virtual_portfolio SET shares=?, updated_at=datetime('now','localtime') WHERE ticker=?", (new_shares, ticker))
+
+    conn.execute("UPDATE virtual_cash SET cash=?", (cash,))
+    conn.execute("INSERT INTO virtual_transactions (ticker,action,shares,price,amount,cash_after) VALUES (?,?,?,?,?,?)",
+                 (ticker, action, shares, price, amount, cash))
+    conn.commit(); conn.close()
+    return {"success": True, "action": action, "ticker": ticker, "shares": shares, "price": price, "amount": amount, "cash_after": cash}
+
+
 def delete_alert(username: str, alert_id: int) -> None:
     conn = _ensure_tables(username)
     conn.execute("UPDATE alerts SET active=0 WHERE id=?", (alert_id,))

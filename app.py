@@ -25,6 +25,7 @@ from database import (  # noqa: E402
     save_note, get_note, get_all_notes,
     save_position, get_position, get_all_positions,
     save_alert, get_alerts, delete_alert,
+    init_virtual_account, get_virtual_cash, get_virtual_holdings, get_virtual_transactions, virtual_trade,
 )
 from graph_builder import build_graph  # noqa: E402
 from graph_types import StockAgentState  # noqa: E402
@@ -133,7 +134,7 @@ with st.sidebar:
         ok=sum(1 for r in st.session_state["batch_results"] if r.get("data_fetch_success"))
         st.success(f"✅ 上次分析: {ok}/{len(st.session_state['batch_results'])} 成功")
 
-    page=st.radio("",["🏠 市场概览","📈 个股深度","📐 策略回测","🔍 全市场搜索","🎯 条件选股","📊 多股对比","⭐ 持仓管理","🚀 批量分析","📋 历史报告","🛡️ 智能风控"],label_visibility="collapsed")
+    page=st.radio("",["🏠 市场概览","📈 个股深度","📐 策略回测","🔍 全市场搜索","🎯 条件选股","⭐ 持仓管理","💸 模拟交易","🚀 批量分析","📋 历史报告"],label_visibility="collapsed")
     st.divider()
     s=get_summary(USER);st.metric("我的报告",s["total"])
     if s["total"]>0:st.metric("成功率",f"{s['success']/s['total']*100:.0f}%")
@@ -810,6 +811,115 @@ elif page.startswith("⭐"):
             if st.button("🗑️ 移除",use_container_width=True,disabled=not rm):remove_from_watchlist(USER,al,rm);st.rerun()
 
 # ============================================
+# 💸 模拟交易
+# ============================================
+elif page.startswith("💸"):
+    st.title("💸 模拟交易")
+    init_virtual_account(USER, 100000)
+    cash = get_virtual_cash(USER)
+    holdings = get_virtual_holdings(USER)
+
+    # 账户总览
+    col_cash, col_value, col_total, col_pnl = st.columns(4)
+    col_cash.metric("可用现金", f"{cash:,.0f}元")
+
+    total_value = cash
+    total_cost = 0.0
+    if holdings:
+        codes = [h["ticker"] for h in holdings]
+        try:
+            quotes = get_quotes_batched(codes)
+            for h in holdings:
+                q = quotes.get(h["ticker"], {})
+                price = q.get("price", 0)
+                if price > 0:
+                    total_value += price * h["shares"]
+                    total_cost += h["avg_cost"] * h["shares"]
+        except Exception:
+            pass
+
+    col_value.metric("持仓市值", f"{total_value-cash:,.0f}元")
+    col_total.metric("总资产", f"{total_value:,.0f}元")
+
+    init_cash = 100000
+    total_pnl = total_value - init_cash
+    total_pnl_pct = (total_value / init_cash - 1) * 100
+    col_pnl.metric("总盈亏", f"{total_pnl:+,.0f}元 ({total_pnl_pct:+.2f}%)")
+
+    st.divider()
+
+    # 买入/卖出
+    col_buy, col_holdings = st.columns([1, 2])
+    with col_buy:
+        st.subheader("下单")
+        ticker_in = st.text_input("股票代码", placeholder="600519", key="trade_t")
+        shares_in = st.number_input("数量(股)", value=100, step=100, min_value=100, key="trade_s")
+
+        if ticker_in and ticker_in.isdigit():
+            qq = _q((ticker_in,))
+            cur_price = qq[0]["price"] if qq and qq[0].get("price", 0) > 0 else 0
+            if cur_price > 0:
+                st.caption(f"现价: {cur_price:.2f} | 金额: {cur_price*shares_in:,.0f}元")
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("🟢 买入", use_container_width=True):
+                        r = virtual_trade(USER, ticker_in, "buy", int(shares_in), cur_price)
+                        if r["success"]: st.toast(f'买入 {ticker_in} {shares_in}股 @ {cur_price:.2f}')
+                        else: st.error(r["error"])
+                with col_btn2:
+                    if st.button("🔴 卖出", use_container_width=True):
+                        r = virtual_trade(USER, ticker_in, "sell", int(shares_in), cur_price)
+                        if r["success"]: st.toast(f'卖出 {ticker_in} {shares_in}股 @ {cur_price:.2f}')
+                        else: st.error(r["error"])
+
+        if st.button("🔄 重置账户"):
+            conn = __import__('database')._ensure_tables(USER)
+            conn.execute("DELETE FROM virtual_portfolio")
+            conn.execute("DELETE FROM virtual_transactions")
+            conn.execute("UPDATE virtual_cash SET cash=100000 WHERE id=1")
+            conn.execute("INSERT INTO virtual_transactions (ticker,action,shares,price,amount,cash_after) VALUES ('CASH','init',0,0,100000,100000)")
+            conn.commit(); conn.close()
+            st.rerun()
+
+    with col_holdings:
+        st.subheader("持仓明细")
+        if holdings:
+            codes_h = [h["ticker"] for h in holdings]
+            try:
+                quotes_h = get_quotes_batched(codes_h)
+                hrows = []
+                for h in holdings:
+                    q = quotes_h.get(h["ticker"], {})
+                    cp = q.get("price", 0)
+                    pnl = (cp - h["avg_cost"]) * h["shares"] if cp > 0 else 0
+                    pnl_pct = (cp / h["avg_cost"] - 1) * 100 if cp > 0 and h["avg_cost"] > 0 else 0
+                    hrows.append({
+                        "代码": h["ticker"], "名称": q.get("name", ""),
+                        "持仓": h["shares"], "成本": f"{h['avg_cost']:.2f}",
+                        "现价": f"{cp:.2f}" if cp > 0 else "-",
+                        "盈亏": f"{pnl:+,.0f}元 ({pnl_pct:+.2f}%)",
+                    })
+                st.dataframe(pd.DataFrame(hrows), hide_index=True, height=250)
+            except Exception:
+                st.caption("行情加载中...")
+        else:
+            st.info("暂无持仓，开始模拟交易吧。")
+
+    # 交易记录
+    st.divider()
+    st.subheader("交易记录")
+    txs = get_virtual_transactions(USER, limit=30)
+    if txs:
+        tx_rows = [{
+            "时间": t.get("created_at", "")[:19], "代码": t["ticker"],
+            "操作": "🟢买入" if t["action"] == "buy" else ("🔴卖出" if t["action"] == "sell" else "💵初始"),
+            "数量": t["shares"], "价格": f"{t['price']:.2f}",
+            "金额": f"{t['amount']:,.0f}", "余额": f"{t['cash_after']:,.0f}",
+        } for t in txs]
+        st.dataframe(pd.DataFrame(tx_rows), hide_index=True, height=250)
+    else:
+        st.info("暂无交易。")
+
 # 🚀 批量分析（一次执行，无闪烁，实时进度）
 # ============================================
 elif page.startswith("🚀"):
