@@ -460,7 +460,13 @@ elif page.startswith("📐"):
 # ============================================
 elif page.startswith("🎯"):
     st.title("🎯 智能选股")
-    st.caption("多维度筛选 + 综合评分，找到最优潜力股")
+    st.caption("多维度筛选 + 综合评分 + 策略验证")
+
+    # 缓存筛选结果，避免重复计算导致页面闪烁
+    if "scr_results" not in st.session_state:
+        st.session_state["scr_results"] = None
+    if "scr_params" not in st.session_state:
+        st.session_state["scr_params"] = None
 
     from fundamental_data import get_fundamentals
     univ = get_universe_stats()
@@ -478,7 +484,14 @@ elif page.startswith("🎯"):
 
     st.divider()
 
-    if st.button("🔍 智能筛选", type="primary", use_container_width=True):
+    current_params = (pe_max, cap_min, board_f, chg_dir, ind_filter, trend_filter)
+    force_rescan = st.button("🔍 智能筛选", type="primary", use_container_width=True)
+    
+    # 用缓存结果（参数不变时不重算）
+    need_rescan = force_rescan or st.session_state["scr_results"] is None or st.session_state.get("scr_params") != current_params
+    if not need_rescan:
+        results = st.session_state["scr_results"]
+    else:
         with st.spinner(f"扫描 {univ['total']:,} 支股票..."):
             # 取候选池
             if board_f == "全部":
@@ -560,6 +573,8 @@ elif page.startswith("🎯"):
 
             if results:
                 results.sort(key=lambda x: -x["score"])
+                st.session_state["scr_results"] = results
+                st.session_state["scr_params"] = current_params
                 st.success(f"筛选出 {len(results)} 支")
 
                 # 按评分分组显示
