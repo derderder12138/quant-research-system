@@ -93,6 +93,10 @@ def build_kline_chart(ticker: str, name: str = "", timeframe: str = "半年") ->
 
     stock_label = f"{ticker} {name}" if name else ticker
 
+    # 检测异动日（涨跌幅>5%）
+    df["chg_pct"] = df["close"].pct_change() * 100
+    big_move = df[df["chg_pct"].abs() > 5].tail(8)
+
     fig = make_subplots(
         rows=4, cols=1, shared_xaxes=True, vertical_spacing=0.02,
         row_heights=[0.45, 0.12, 0.22, 0.21],
@@ -144,6 +148,16 @@ def build_kline_chart(ticker: str, name: str = "", timeframe: str = "半年") ->
     fig.add_hline(y=30, line_dash="dash", line_color="#1aad19", line_width=0.5, opacity=0.4, row=4, col=1)
     fig.add_hline(y=50, line_dash="solid", line_color="#666", line_width=0.3, row=4, col=1)
 
+    # ---- 异动标注: 涨跌>5%标记日期 ----
+    if not big_move.empty:
+        for _, r in big_move.iterrows():
+            color = "#e83939" if r["chg_pct"] > 0 else "#1aad19"
+            symbol = "triangle-up" if r["chg_pct"] > 0 else "triangle-down"
+            y_pos = r["high"] * 1.03 if r["chg_pct"] > 0 else r["low"] * 0.97
+            fig.add_annotation(
+                x=r["date"], y=y_pos, text=f"{r['chg_pct']:+.0f}%", showarrow=True,
+                arrowhead=2, arrowsize=1, arrowcolor=color, font=dict(color=color, size=10, family="Arial Black"),
+                bgcolor="rgba(0,0,0,0.7)", bordercolor=color, borderwidth=1, borderpad=3, row=1, col=1)
     # ---- 全局布局 ----
     fig.update_layout(
         template="plotly_dark", height=750, hovermode="x unified",

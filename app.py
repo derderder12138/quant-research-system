@@ -459,8 +459,123 @@ elif page.startswith("📐"):
 # 🎯 条件选股
 # ============================================
 elif page.startswith("🎯"):
-    st.title("🎯 条件选股器")
-    st.caption("按 PE / 市值 / 板块 / 涨跌幅 筛选")
+    st.title("🎯 智能选股")
+    st.caption("多维度筛选 + 综合评分，找到最优潜力股")
+
+    from fundamental_data import get_fundamentals
+    univ = get_universe_stats()
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        pe_max = st.number_input("PE(动)上限", value=80, min_value=1, max_value=500, step=5, help="市盈率越低越便宜")
+        trend_filter = st.selectbox("趋势", ["全部","上升(价>MA20)","下降(价<MA20)"], help="价格在20日均线上方=上升趋势")
+    with col2:
+        cap_min = st.number_input("市值下限(亿)", value=50, min_value=0, max_value=10000, step=10)
+        ind_filter = st.selectbox("行业", ["全部"] + get_industry_list(), help="聚焦特定行业赛道")
+    with col3:
+        board_f = st.selectbox("板块", ["全部"] + sorted(univ.get("boards", {}).keys()))
+        chg_dir = st.selectbox("今日涨跌", ["全部","上涨","下跌"], help="今日市场表现")
+
+    st.divider()
+
+    if st.button("🔍 智能筛选", type="primary", use_container_width=True):
+        with st.spinner(f"扫描 {univ['total']:,} 支股票..."):
+            # 取候选池
+            if board_f == "全部":
+                candidates = []
+                for b in univ.get("boards", {}).keys():
+                    candidates.extend(get_by_board(b, limit=300))
+            else:
+                candidates = get_by_board(board_f, limit=500)
+            candidates = candidates[:500]
+
+            codes = [c["code"] for c in candidates]
+            fd_all = get_fundamentals(codes[:200])
+
+            results = []
+            for code in codes:
+                fd = fd_all.get(code, {})
+                if not fd or fd.get("pe", 0) <= 0:
+                    continue
+                pe = fd.get("pe", 99)
+                cap = fd.get("market_cap", 0)
+                chg = fd.get("change_pct", 0)
+                roe = fd.get("roe", 0)
+                y1 = fd.get("y1_change", 0)
+                turnover = fd.get("turnover_rate", 0)
+
+                # 筛选逻辑
+                if pe > pe_max or cap < cap_min:
+                    continue
+                if chg_dir == "上涨" and chg <= 0:
+                    continue
+                if chg_dir == "下跌" and chg >= 0:
+                    continue
+                if ind_filter != "全部":
+                    from industry import classify_stock
+                    if classify_stock(code) != ind_filter:
+                        continue
+                if trend_filter == "上升(价>MA20)":
+                    try:
+                        from charts import _fetch_history
+                        td = _fetch_history(code, 60)
+                        if td.empty or len(td) < 25: continue
+                        td["MA20"] = td["close"].rolling(20).mean()
+                        if td["close"].iloc[-1] <= td["MA20"].iloc[-1]: continue
+                    except: pass
+                elif trend_filter == "下降(价<MA20)":
+                    try:
+                        from charts import _fetch_history
+                        td = _fetch_history(code, 60)
+                        if td.empty or len(td) < 25: continue
+                        td["MA20"] = td["close"].rolling(20).mean()
+                        if td["close"].iloc[-1] >= td["MA20"].iloc[-1]: continue
+                    except: pass
+
+                # 综合评分（0-100）
+                score = 50
+                if pe < 15: score += 15
+                elif pe < 30: score += 8
+                else: score -= 5
+                if roe > 15: score += 12
+                elif roe > 8: score += 5
+                if y1 > 10: score += 10
+                elif y1 > 0: score += 3
+                else: score -= 8
+                if chg > 0: score += 3
+                if cap > 500: score += 5
+                if turnover > 1: score += 3
+                score = max(0, min(100, score))
+
+                results.append({**fd, "code": code, "score": score})
+
+            if results:
+                results.sort(key=lambda x: -x["score"])
+                st.success(f"筛选出 {len(results)} 支")
+
+                # 按评分分组显示
+                gold = [r for r in results if r["score"] >= 75][:20]
+                silver = [r for r in results if 50 <= r["score"] < 75][:30]
+                bronze = [r for r in results if r["score"] < 50][:30]
+
+                if gold:
+                    st.subheader("🥇 优质标的（评分≥75）")
+                    gdf = pd.DataFrame([{"代码":r["code"],"名称":r.get("name",""),"评分":r["score"],"PE":f"{r['pe']:.1f}","市值":f"{r['market_cap']:,.0f}亿","ROE%":f"{r.get('roe',0):.1f}","近1年%":f"{r['y1_change']:+.1f}","今日%":f"{r['change_pct']:+.2f}"} for r in gold])
+                    st.dataframe(gdf, hide_index=True, height=250)
+
+                if silver:
+                    st.subheader("🥈 良好标的（评分50-74）")
+                    sdf = pd.DataFrame([{"代码":r["code"],"名称":r.get("name",""),"评分":r["score"],"PE":f"{r['pe']:.1f}"} for r in silver])
+                    st.dataframe(sdf, hide_index=True, height=200)
+
+                # 批量操作
+                sel = st.multiselect("选择加入持仓", [r["code"] for r in results[:100]], key="scr2")
+                if st.button(f"📥 加入 ({len(sel)}支)", disabled=not sel):
+                    add_to_watchlist(USER, "默认池", sel)
+                    st.toast(f"已添加 {len(sel)} 支")
+                    st.rerun()
+            else:
+                st.info("无匹配。放宽条件试试。")
 
     from fundamental_data import get_fundamentals
     univ = get_universe_stats()  # 确保在本地作用域
