@@ -40,6 +40,7 @@ from strategy_custom import build_custom_chart  # noqa: E402
 from fundamental_data import get_single_fundamentals  # noqa: E402
 from industry import classify_batch, get_industry_list  # noqa: E402
 from signals import get_all_signals  # noqa: E402
+from teaching import scan_daily_case, explain_fundamentals, tooltip_macd, tooltip_kdj, tooltip_rsi, _tooltips  # noqa: E402
 
 try:
     refresh_universe(force=False)
@@ -134,7 +135,7 @@ with st.sidebar:
         ok=sum(1 for r in st.session_state["batch_results"] if r.get("data_fetch_success"))
         st.success(f"✅ 上次分析: {ok}/{len(st.session_state['batch_results'])} 成功")
 
-    page=st.radio("",["🏠 市场概览","📈 个股深度","📐 策略回测","🔍 全市场搜索","🎯 条件选股","⭐ 持仓管理","💸 模拟交易","🚀 批量分析","📋 历史报告"],label_visibility="collapsed")
+    page=st.radio("",["🏠 市场概览","🎓 新手学堂","📈 个股深度","📐 策略回测","🔍 全市场搜索","🎯 条件选股","⭐ 持仓管理","💸 模拟交易","🚀 批量分析","📋 历史报告"],label_visibility="collapsed")
     st.divider()
     s=get_summary(USER);st.metric("我的报告",s["total"])
     if s["total"]>0:st.metric("成功率",f"{s['success']/s['total']*100:.0f}%")
@@ -239,6 +240,17 @@ if page.startswith("🏠"):
                     pc3.metric("持仓总盈亏",f"{pos_pnl:+,.0f}元 ({pos_pnl_pct:+.2f}%)")
             except Exception: pass
 
+        # 每日教学案例
+    daily = scan_daily_case()
+    if daily:
+        st.divider()
+        col_tea, col_act = st.columns([4, 1])
+        with col_tea:
+            st.info(f"""💡 **今日教学案例: {daily['name']}({daily['ticker']}) — {daily['type']}**  
+            {daily['explanation']}""")
+        with col_act:
+            if st.button("📈 去看看", key="go_tea"): st.session_state["goto_ticker"] = daily["ticker"]; st.rerun()
+
     st.divider()
     ca,cb=st.columns([2,1])
     with ca:
@@ -264,6 +276,93 @@ if page.startswith("🏠"):
             for r,cnt in sorted(sm["ratings"].items(),key=lambda x:-x[1]):st.caption(f"  {r}: {cnt}")
 
 # ============================================
+# 新手学堂
+# ============================================
+elif page.startswith("🎓"):
+    st.title("🎓 新手学堂")
+    st.caption("从零开始，用真实的A股数据学股票。每一课都直接连着实时的市场数据。")
+
+    lesson = st.selectbox("选择课程", [
+        "第1课: 认识股市",
+        "第2课: K线入门",
+        "第3课: 均线系统",
+        "第4课: 技术指标 MACD KDJ RSI",
+        "第5课: 基本面 PE 市值 ROE",
+        "第6课: 策略与风控",
+        "第7课: 实战演练",
+    ])
+    st.divider()
+
+    if "第1课" in lesson:
+        st.subheader("📖 第1课：认识股市")
+        cl, cr = st.columns([1, 1])
+        with cl:
+            st.markdown("""**A股是什么？** 中国股票市场，上海+深圳交易所。代码6位数字：60xxxx=上海主板 00xxxx=深圳主板 30xxxx=创业板 68xxxx=科创板。交易时间周一至周五 9:30-11:30 13:00-15:00。""")
+        with cr:
+            if indices:
+                st.subheader("当前实时指数")
+                for idx in indices: st.metric(idx["name"], f"{idx['price']:.2f}", f"{idx['change']:+.2f}({idx['change_pct']:+.2f}%)")
+
+    elif "第2课" in lesson:
+        st.subheader("📖 第2课：K线入门")
+        st.markdown("""**K线(蜡烛图)**：每根=一天。红阳线(收盘>开盘=涨)，绿阴线(收盘<开盘=跌)。实体=开收盘区间，影线=最高最低。""")
+        demo = st.text_input("输入代码看K线", value="600519", key="lesson_k")
+        if demo: st.caption(f"→ 去「📈 个股深度」输入 {demo}，看真实K线图")
+
+    elif "第3课" in lesson:
+        st.subheader("📖 第3课：均线系统")
+        st.markdown("""**均线(MA)**=N天均价。MA5=周线 MA20=月线 MA60=季线。金叉=短期上穿长期→买入信号。死叉=短期下穿长期→卖出信号。""")
+        d2 = st.text_input("股票代码", value="600519", key="lesson_ma")
+        if st.button("找最近金叉/死叉", key="find_cross"):
+            from teaching import _fetch
+            df = _fetch(d2, 400)
+            if not df.empty and len(df) > 30:
+                df["MA5"] = df["close"].rolling(5).mean()
+                df["MA10"] = df["close"].rolling(10).mean()
+                ups = df[(df["MA5"] > df["MA10"]) & (df["MA5"].shift(1) <= df["MA10"].shift(1))]
+                downs = df[(df["MA5"] < df["MA10"]) & (df["MA5"].shift(1) >= df["MA10"].shift(1))]
+                if not ups.empty: st.success(f"最近3次金叉: {', '.join(str(d.date()) for d in ups['date'].tail(3))}")
+                if not downs.empty: st.warning(f"最近3次死叉: {', '.join(str(d.date()) for d in downs['date'].tail(3))}")
+                state = "🟢 MA5在MA10上方(多头)" if df["MA5"].iloc[-1] > df["MA10"].iloc[-1] else "🔴 MA5在MA10下方(空头)"
+                st.caption(f"最新状态: {state}")
+
+    elif "第4课" in lesson:
+        st.subheader("📖 第4课：技术指标")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            with st.expander("MACD", expanded=True): st.markdown(_tooltips["MACD"])
+        with col2:
+            with st.expander("KDJ", expanded=True): st.markdown(_tooltips["KDJ"])
+        with col3:
+            with st.expander("RSI", expanded=True): st.markdown(_tooltips["RSI"])
+        d3 = st.text_input("输入股票代码看实时状态", value="600519", key="lesson_ind")
+        if d3:
+            try:
+                st.info(tooltip_macd(d3)); st.info(tooltip_kdj(d3)); st.info(tooltip_rsi(d3))
+            except: st.warning("数据加载中...")
+
+    elif "第5课" in lesson:
+        st.subheader("📖 第5课：基本面")
+        st.markdown("""**PE(市盈率)**=股价÷每股收益，越低越便宜。**总市值**=股价×总股本，大盘>1000亿稳。**ROE**=赚钱效率，>15%算优秀。**换手率**=活跃度，1-3%正常。""")
+        d4 = st.text_input("输入代码看白话翻译", value="600519", key="lesson_fund")
+        if d4 and d4.isdigit():
+            try:
+                from fundamental_data import get_single_fundamentals
+                fd = get_single_fundamentals(d4)
+                if fd and fd.get("pe", 0) > 0:
+                    for k, v in explain_fundamentals(fd).items(): st.info(f"**{k}**: {v}")
+            except: st.warning("数据加载中...")
+
+    elif "第6课" in lesson:
+        st.subheader("📖 第6课：策略与风控")
+        st.markdown("""**凯里公式**根据胜率+盈亏比算最优仓位。**止损**在买入前就想好——亏多少认赔？**仓位管理**核心：永远不all-in一支股票。""")
+        st.warning("🛡️ 去「📈 个股深度」→ 点「分析交易信号」看凯里仓位建议。去「💸 模拟交易」练习下单。")
+
+    elif "第7课" in lesson:
+        st.subheader("📖 第7课：实战演练")
+        st.markdown("""**完整流程**：①🎯智能选股→②📈分析→③📐回测→④💸模拟买入→⑤一周后复盘。""")
+        st.success("开始实战：去「🎯 智能选股」设PE<50+市值>100亿，选出你的候选池！")
+
 # 个股深度
 # ============================================
 elif page.startswith("📈"):
@@ -964,6 +1063,8 @@ elif page.startswith("💸"):
             cur_price = qq[0]["price"] if qq and qq[0].get("price", 0) > 0 else 0
             if cur_price > 0:
                 st.caption(f"现价: {cur_price:.2f} | 金额: {cur_price*shares_in:,.0f}元")
+                buy_reason = st.text_input("买入理由(必填)", placeholder="例如: MA5金叉+放量突破", key="buy_rsn")
+                stop_loss = st.number_input("止损价(必填)", value=cur_price*0.95, step=0.01, format="%.2f", key="stop_ls")
                 col_btn1, col_btn2 = st.columns(2)
                 with col_btn1:
                     if st.button("🟢 买入", use_container_width=True):
